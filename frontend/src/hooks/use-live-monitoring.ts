@@ -38,6 +38,15 @@ function mergeHistory(history: HistoryPoint[], live: TrendPoint[]) {
   return [...earlier, ...live];
 }
 
+/**
+ * A risk from an older backend (the scored model, without `triggers`/`thresholds`) can't be shown
+ * by this app: treat the reading as not yet checked until the backend sends the new kind.
+ */
+function withCurrentRisk(snapshot: Snapshot): Snapshot {
+  const risk = snapshot.risk;
+  return risk && (!risk.triggers || !risk.thresholds) ? { ...snapshot, risk: null } : snapshot;
+}
+
 /** A new status replaces the snapshot's; a risk only stands while the baseline it used does. */
 function withStatus(snapshot: Snapshot | null, status: PatchStatus): Snapshot | null {
   if (!snapshot) return null;
@@ -98,7 +107,8 @@ export function useLiveMonitoring(token: string) {
       setStatus(next);
       setSnapshot((current) => withStatus(current, next));
     });
-    socket.on('reading', (next: Snapshot) => {
+    socket.on('reading', (incoming: Snapshot) => {
+      const next = withCurrentRisk(incoming);
       setSnapshot(next);
       // A backend older than the patch controls sends readings without the device status.
       if (next.device && next.calibration) {

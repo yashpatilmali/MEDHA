@@ -137,7 +137,8 @@ deviceStateSchema.methods.toSnapshot = function toSnapshot() {
     },
     receivedAt: this.receivedAt.toISOString(),
     pressureDuration: this.pressureDuration,
-    risk: this.risk ?? null,
+    // A risk saved by the earlier scored model has no `triggers`: don't send it to the app.
+    risk: this.risk?.triggers ? this.risk : null,
     calibration: this.toCalibration(),
     device: this.toDevice(),
   };
