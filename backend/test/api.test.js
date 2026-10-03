@@ -613,11 +613,11 @@ describe('live updates', () => {
       await ingestReading('SP-ESP32-001', { pressure: 12, temperature: 33, humidity: 45 }, new Date(base));
       assert.equal((await nextReading).reading.pressure, 12);
 
-      // Skin 0.5 °C warmer than the baseline is ATTENTION straight away.
+      // Skin 20 % warmer than the baseline (33 → 39.6 °C) is ATTENTION straight away.
       const alert = once(socket, 'alert');
       await ingestReading(
         'SP-ESP32-001',
-        { pressure: 12, temperature: 33.5, humidity: 45 },
+        { pressure: 12, temperature: 39.6, humidity: 45 },
         new Date(base + 1000)
       );
       assert.deepEqual((await alert).triggers, { pressure: false, temperature: true, humidity: false });

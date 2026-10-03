@@ -34,8 +34,11 @@ export function AttentionChecks({ reading, risk, duration }: AttentionChecksProp
     },
     {
       label: 'Temperature',
-      rule: `Rise ≥ ${thresholds.temperatureRise} deg C from baseline`,
-      value: `${formatSigned(deltas.temperature)} deg C`,
+      rule: `Rise ≥ ${thresholds.temperatureRisePercent} % from baseline`,
+      value:
+        percentChanges.temperature === null
+          ? 'No baseline'
+          : `${formatSigned(percentChanges.temperature)} % (${formatSigned(deltas.temperature)} deg C)`,
       met: triggers.temperature,
     },
     {

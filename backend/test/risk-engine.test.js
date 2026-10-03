@@ -43,18 +43,19 @@ describe('pressure', () => {
 });
 
 describe('temperature', () => {
-  test('ATTENTION from a 0.5 °C rise', () => {
-    assert.equal(triggers({ pressure: 24, temperature: 36.8, humidity: 40 }).temperature, false);
-    assert.equal(triggers({ pressure: 24, temperature: 36.9, humidity: 40 }).temperature, true);
+  test('ATTENTION from a 20 % relative rise: 36.4 → 43.7 °C', () => {
+    assert.equal(triggers({ pressure: 24, temperature: 43.6, humidity: 40 }).temperature, false);
+    assert.equal(triggers({ pressure: 24, temperature: 43.7, humidity: 40 }).temperature, true);
   });
 
-  test('a 0.5 °C rise counts even when the subtraction rounds just under it', () => {
-    const risk = calculateRisk({ pressure: 24, temperature: 36.6, humidity: 40 }, { ...baseline, temperature: 36.1 }, 0);
+  test('a 20 % rise counts even when the division rounds just under it', () => {
+    const risk = calculateRisk({ pressure: 24, temperature: 36, humidity: 40 }, { ...baseline, temperature: 30 }, 0);
     assert.equal(risk.riskLevel, 'ATTENTION');
   });
 
-  test('36.5 → 37.0 °C is +0.5 °C, about +1.37 %', () => {
+  test('a 0.5 °C rise is no longer enough: 36.5 → 37.0 °C is only +1.4 %', () => {
     const risk = calculateRisk({ pressure: 24, temperature: 37, humidity: 40 }, { ...baseline, temperature: 36.5 }, 0);
+    assert.equal(risk.riskLevel, 'NORMAL');
     assert.equal(risk.deltas.temperature, 0.5);
     assert.equal(risk.percentChanges.temperature, 1.4);
   });

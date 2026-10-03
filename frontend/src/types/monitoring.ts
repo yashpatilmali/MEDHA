@@ -8,7 +8,7 @@ export type RiskLevel = 'NORMAL' | 'ATTENTION';
 export interface Triggers {
   /** ≥ 32 mmHg held for ≥ 10 s. */
   pressure: boolean;
-  /** ≥ 0.5 °C above the baseline. */
+  /** ≥ 20 % above the baseline, relative to it. */
   temperature: boolean;
   /** ≥ 50 % above the baseline, relative to it. */
   humidity: boolean;
@@ -29,7 +29,7 @@ export interface Risk {
   thresholds: {
     pressure: number;
     durationSeconds: number;
-    temperatureRise: number;
+    temperatureRisePercent: number;
     humidityRisePercent: number;
   };
 }

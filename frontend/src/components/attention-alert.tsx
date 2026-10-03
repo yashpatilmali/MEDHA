@@ -38,7 +38,10 @@ export function AttentionAlert({ reading, risk, duration }: AttentionAlertProps)
     },
     {
       label: 'Temperature',
-      value: `${formatSigned(deltas.temperature)} deg C vs baseline`,
+      value:
+        percentChanges.temperature === null
+          ? `${formatSigned(deltas.temperature)} deg C vs baseline`
+          : `${formatSigned(percentChanges.temperature)} % vs baseline`,
       active: triggers.temperature,
     },
     {

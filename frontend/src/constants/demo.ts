@@ -121,17 +121,17 @@ export function demoSnapshot(now: number, session: DemoSession): Snapshot | null
   };
   if (calibration.status !== 'complete') return { ...base, risk: null };
 
-  // The same rules as the backend: 32 mmHg held 10 s, +0.5 °C, +50 % humidity.
+  // The same rules as the backend: 32 mmHg held 10 s, +20 % temperature, +50 % humidity.
   const overFrom = Math.asin((32 - 26) / 9);
   const pressureDuration = pressure >= 32 ? Math.max(0, Math.floor(((phase - overFrom) * 9000) / 1000)) : 0;
+  const percent = (value: number, baseline: number) => round(((value - baseline) / baseline) * 100);
   const humidityPercent = round(((humidity - DEMO_BASELINE.humidity) / DEMO_BASELINE.humidity) * 100);
   const triggers = {
     pressure: pressure >= 32 && pressureDuration >= 10,
-    temperature: temperature - DEMO_BASELINE.temperature >= 0.5 - 1e-9,
+    temperature: percent(temperature, DEMO_BASELINE.temperature) >= 20,
     humidity: humidityPercent >= 50,
   };
   const attention = triggers.pressure || triggers.temperature || triggers.humidity;
-  const percent = (value: number, baseline: number) => round(((value - baseline) / baseline) * 100);
 
   return {
     ...base,
@@ -151,7 +151,7 @@ export function demoSnapshot(now: number, session: DemoSession): Snapshot | null
         humidity: humidityPercent,
       },
       pressureAttentionPercent: percent(32, DEMO_BASELINE.pressure),
-      thresholds: { pressure: 32, durationSeconds: 10, temperatureRise: 0.5, humidityRisePercent: 50 },
+      thresholds: { pressure: 32, durationSeconds: 10, temperatureRisePercent: 20, humidityRisePercent: 50 },
     },
   };
 }

@@ -203,7 +203,7 @@ function Dashboard({ patient, token }: { patient: Patient; token: string }) {
               title="TEMPERATURE"
               value={reading.temperature.toFixed(1)}
               unit="deg C"
-              {...sensorStatus(risk?.deltas.temperature, risk?.triggers.temperature, 'deg C')}
+              {...sensorStatus(risk?.percentChanges.temperature, risk?.triggers.temperature, '%')}
             />
             <SensorCard
               title="HUMIDITY"

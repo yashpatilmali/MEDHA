@@ -44,7 +44,8 @@ function mergeHistory(history: HistoryPoint[], live: TrendPoint[]) {
  */
 function withCurrentRisk(snapshot: Snapshot): Snapshot {
   const risk = snapshot.risk;
-  return risk && (!risk.triggers || !risk.thresholds) ? { ...snapshot, risk: null } : snapshot;
+  const current = risk?.triggers && risk.thresholds?.temperatureRisePercent !== undefined;
+  return risk && !current ? { ...snapshot, risk: null } : snapshot;
 }
 
 /** A new status replaces the snapshot's; a risk only stands while the baseline it used does. */

@@ -50,7 +50,7 @@ describe('the message', () => {
     assert.equal(
       message,
       'MEDHA ATTENTION: Rahul Sharma (SP001): prolonged pressure. Please check/reposition. ' +
-        'Right hip: 33 mmHg for 12s, temp +0.5C, humidity +50% vs baseline.'
+        'Right hip: 33 mmHg for 12s, temp +1.4%, humidity +50% vs baseline.'
     );
     assert.ok(message.length <= 160, `${message.length} characters`);
   });
@@ -62,7 +62,7 @@ describe('the message', () => {
 
   test('leaves out the duration when pressure is not held', () => {
     const message = alertMessage(patient, details({ temperature: true }, { pressureDuration: 0 }));
-    assert.match(message, /skin temperature rising\. Please check\/reposition\. 33 mmHg, temp \+0\.5C/);
+    assert.match(message, /skin temperature rising\. Please check\/reposition\. 33 mmHg, temp \+1\.4%/);
   });
 });
 

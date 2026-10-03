@@ -4,30 +4,30 @@
  *
  * ATTENTION when any of these holds:
  *   pressure     ≥ 32 mmHg, held for ≥ 10 s
- *   temperature  ≥ 0.5 °C above the baseline
+ *   temperature  ≥ 20 % above the baseline (relative change)
  *   humidity     ≥ 50 % above the baseline (relative change)
  *
- * These are prototype engineering rules derived from the observations in the reference paper
- * (an alert at 32 mmHg with 10 s loading, a 0.5 °C rise, a 50 % humidity rise). They are not
+ * These are prototype engineering rules (pressure and humidity derived from the observations in
+ * the reference paper: an alert at 32 mmHg with 10 s loading, a 50 % humidity rise). They are not
  * clinically validated thresholds.
  */
 
 /** mmHg. Attention once pressure stays at or above this for ALERT_DURATION_SEC. */
 export const ALERT_PRESSURE = 32;
 export const ALERT_DURATION_SEC = 10;
-/** °C above the baseline. */
-export const TEMPERATURE_RISE = 0.5;
+/** % above the baseline, relative to it. */
+export const TEMPERATURE_RISE_PERCENT = 20;
 /** % above the baseline, relative to it. */
 export const HUMIDITY_RISE_PERCENT = 50;
 
 export const THRESHOLDS = {
   pressure: ALERT_PRESSURE,
   durationSeconds: ALERT_DURATION_SEC,
-  temperatureRise: TEMPERATURE_RISE,
+  temperatureRisePercent: TEMPERATURE_RISE_PERCENT,
   humidityRisePercent: HUMIDITY_RISE_PERCENT,
 };
 
-// Sensor values have one decimal, so differences like 36.6 - 36.1 can land a hair under 0.5.
+// Sensor values have one decimal, so a change can land a hair under a threshold it reaches.
 const EPSILON = 1e-9;
 
 const round1 = (value) => Math.round(value * 10) / 10;
@@ -52,12 +52,13 @@ export function pressureAttentionPercent(baselinePressure) {
  * stayed at or above ALERT_PRESSURE.
  */
 export function calculateRisk(reading, baseline, pressureDuration) {
-  const temperatureRise = reading.temperature - baseline.temperature;
+  const temperatureChange = rawPercentChange(reading.temperature, baseline.temperature);
   const humidityChange = rawPercentChange(reading.humidity, baseline.humidity);
 
   const triggers = {
     pressure: reading.pressure >= ALERT_PRESSURE && pressureDuration >= ALERT_DURATION_SEC,
-    temperature: temperatureRise >= TEMPERATURE_RISE - EPSILON,
+    temperature:
+      temperatureChange !== null && temperatureChange >= TEMPERATURE_RISE_PERCENT - EPSILON,
     humidity: humidityChange !== null && humidityChange >= HUMIDITY_RISE_PERCENT - EPSILON,
   };
   const riskLevel = triggers.pressure || triggers.temperature || triggers.humidity ? 'ATTENTION' : 'NORMAL';
@@ -71,13 +72,13 @@ export function calculateRisk(reading, baseline, pressureDuration) {
     /** Change from the baseline, in each sensor's unit. */
     deltas: {
       pressure: round1(reading.pressure - baseline.pressure),
-      temperature: round1(temperatureRise),
+      temperature: round1(reading.temperature - baseline.temperature),
       humidity: round1(reading.humidity - baseline.humidity),
     },
     /** Change from the baseline in %; null when the baseline is 0. */
     percentChanges: {
       pressure: percentChange(reading.pressure, baseline.pressure),
-      temperature: percentChange(reading.temperature, baseline.temperature),
+      temperature: temperatureChange === null ? null : round1(temperatureChange),
       humidity: humidityChange === null ? null : round1(humidityChange),
     },
     pressureAttentionPercent: pressureAttentionPercent(baseline.pressure),

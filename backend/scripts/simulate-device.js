@@ -10,7 +10,7 @@
  *   cycle      (default) normal → 36 mmHg held (ATTENTION after 10 s) → relief, repeating
  *   normal     NORMAL
  *   sustained  38 mmHg held: ATTENTION after 10 s
- *   warm       skin 0.8 °C warmer than the baseline: ATTENTION straight away
+ *   warm       skin 21 % warmer than the baseline: ATTENTION straight away
  *   damp       humidity 55 % above the baseline: ATTENTION straight away
  *   high       all three at once
  *
@@ -45,9 +45,9 @@ const normal = () => ({ pressure: jitter(12, 1), temperature: jitter(33, 0.1), h
 const scenarios = {
   normal,
   sustained: () => ({ pressure: jitter(38, 1), temperature: jitter(33, 0.1), humidity: jitter(45, 1) }),
-  warm: () => ({ pressure: jitter(14, 1), temperature: jitter(33.8, 0.05), humidity: jitter(46, 1) }),
+  warm: () => ({ pressure: jitter(14, 1), temperature: jitter(40, 0.1), humidity: jitter(46, 1) }),
   damp: () => ({ pressure: jitter(14, 1), temperature: jitter(33.1, 0.05), humidity: jitter(70, 0.5) }),
-  high: () => ({ pressure: jitter(40, 1), temperature: jitter(33.9, 0.05), humidity: jitter(70, 0.5) }),
+  high: () => ({ pressure: jitter(40, 1), temperature: jitter(40, 0.1), humidity: jitter(70, 0.5) }),
   cycle: (seconds) => {
     const t = seconds % 100;
     if (t < 20) return normal();

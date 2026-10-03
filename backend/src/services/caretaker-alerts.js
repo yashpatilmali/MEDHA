@@ -34,6 +34,7 @@ export function alertMessage(patient, { reading, risk, pressureDuration, positio
   const { triggers, deltas, percentChanges } = risk;
   const reasons = Object.keys(REASONS).filter((key) => triggers[key]).map((key) => REASONS[key]);
   const site = PATCH_SITES[position];
+  const temperature = percentChanges.temperature ?? deltas.temperature;
   const humidity = percentChanges.humidity ?? deltas.humidity;
   return (
     `MEDHA ATTENTION: ${patient.name} (${patient.patientId}): ${reasons.join(', ')}. ` +
@@ -41,7 +42,7 @@ export function alertMessage(patient, { reading, risk, pressureDuration, positio
     (site ? `${site}: ` : '') +
     `${Number(reading.pressure.toFixed(1))} mmHg` +
     (pressureDuration > 0 ? ` for ${pressureDuration}s` : '') +
-    `, temp ${signed(deltas.temperature)}C, humidity ${signed(humidity)}% vs baseline.`
+    `, temp ${signed(temperature)}%, humidity ${signed(humidity)}% vs baseline.`
   );
 }
 
