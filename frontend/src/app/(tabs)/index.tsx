@@ -129,6 +129,7 @@ function Dashboard({ patient, token }: { patient: Patient; token: string }) {
           status={status}
           now={now}
           onActivate={feed.activate}
+          onChoosePosition={feed.choosePosition}
           onScan={feed.scan}
           onDeactivate={feed.deactivate}
         />

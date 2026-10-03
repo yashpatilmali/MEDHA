@@ -138,18 +138,24 @@ export function useLiveMonitoring(token: string) {
     setSnapshot((current) => withStatus(current, next));
   }
 
-  /** Switches the patch's sensors on; `position` says where it was placed. */
-  const activate = (position: PatchPosition) =>
+  /** Switches the patch's sensors on. */
+  const activate = () =>
+    command(api.activate, (session, now) => ({
+      ...session,
+      activatedAt: session.activatedAt ?? now,
+    }));
+
+  /** Records the patient's position, which says where the patch was placed. */
+  const choosePosition = (position: PatchPosition) =>
     command(
-      () => api.activate(position),
-      (session, now) => ({ ...session, activatedAt: session.activatedAt ?? now, position })
+      () => api.setPosition(position),
+      (session) => ({ ...session, position })
     );
 
   /** Switches the sensors off and ends the wear session. */
   const deactivate = () =>
     command(api.deactivate, (session, now) => ({
       ...DEMO_SESSION_OFF,
-      position: session.position,
       lastWear:
         session.wearStartedAt === null
           ? session.lastWear
@@ -164,5 +170,5 @@ export function useLiveMonitoring(token: string) {
       wearStartedAt: session.wearStartedAt ?? now,
     }));
 
-  return { connection, snapshot, status, trend, activate, deactivate, scan };
+  return { connection, snapshot, status, trend, activate, choosePosition, deactivate, scan };
 }

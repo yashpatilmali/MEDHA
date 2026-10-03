@@ -84,8 +84,10 @@ export const api = {
   sendReading: (reading: SensorData) => call<Snapshot>(http.post('/monitoring/readings', reading)),
   device: () => call<PatchStatus>(http.get('/monitoring/device')),
   /** Switches the patch's sensors on; the ESP32 confirms within a few seconds. */
-  activate: (position: PatchPosition) =>
-    call<PatchStatus>(http.post('/monitoring/device/activate', { position })),
+  activate: () => call<PatchStatus>(http.post('/monitoring/device/activate')),
+  /** The patient's position, asked once the sensors are on: says where the patch was placed. */
+  setPosition: (position: PatchPosition) =>
+    call<PatchStatus>(http.post('/monitoring/device/position', { position })),
   /** Switches the sensors off and ends the wear session. */
   deactivate: () => call<PatchStatus>(http.post('/monitoring/device/deactivate')),
   /** Scans the initial readings: the device's next minute of readings becomes the baseline. */

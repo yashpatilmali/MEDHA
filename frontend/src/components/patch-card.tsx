@@ -14,7 +14,8 @@ import { activationOverdue, patchPhase, type PatchPhase } from '@/utils/patch';
 type PatchCardProps = {
   status: PatchStatus;
   now: number;
-  onActivate: (position: PatchPosition) => Promise<void>;
+  onActivate: () => Promise<void>;
+  onChoosePosition: (position: PatchPosition) => Promise<void>;
   onScan: () => Promise<void>;
   onDeactivate: () => Promise<void>;
 };
@@ -28,22 +29,46 @@ const PHASE_LABELS: Record<PatchPhase, string> = {
   offline: 'OFFLINE',
 };
 
+type Action = 'activate' | 'position' | 'scan' | 'deactivate';
+
 /**
- * Controls the sensor patch: ask the patient's position and say where to place the patch, activate
- * its sensors, scan the initial readings, deactivate. Shows whether the patch has confirmed it is
- * on, where it is, and how long it has been on the body.
+ * Controls the sensor patch: activate its sensors, then ask the patient's position and say where
+ * to place the patch, scan the initial readings, deactivate. Shows whether the patch has confirmed
+ * it is on, where it is, and how long it has been on the body.
  */
-export function PatchCard({ status, now, onActivate, onScan, onDeactivate }: PatchCardProps) {
+export function PatchCard({
+  status,
+  now,
+  onActivate,
+  onChoosePosition,
+  onScan,
+  onDeactivate,
+}: PatchCardProps) {
   const theme = useTheme();
-  const [busy, setBusy] = useState<'activate' | 'scan' | 'deactivate' | null>(null);
+  const [busy, setBusy] = useState<Action | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The answer being picked, before it is confirmed with "Patch placed".
   const [position, setPosition] = useState<PatchPosition | null>(null);
+  const [changingPosition, setChangingPosition] = useState(false);
+  // Deactivating ends monitoring, so it asks for confirmation first.
+  const [confirmingDeactivate, setConfirmingDeactivate] = useState(false);
   const chosen = PATCH_POSITIONS.find((option) => option.value === position);
 
   const { device, calibration } = status;
   const phase = patchPhase(device, calibration, now);
+  // Deactivated from somewhere else (another phone, or the patch timing out): close the prompt.
+  if (phase === 'off' && confirmingDeactivate) setConfirmingDeactivate(false);
+  // Each new patch is asked its position afresh.
+  if (phase === 'off' && (position !== null || changingPosition)) {
+    setPosition(null);
+    setChangingPosition(false);
+  }
 
-  async function run(action: 'activate' | 'scan' | 'deactivate', task: () => Promise<void>) {
+  const savedPosition = device.position ?? null;
+  // Asked once the sensors are on, before the initial scan.
+  const askPosition = phase === 'ready' && (savedPosition === null || changingPosition);
+
+  async function run(action: Action, task: () => Promise<void>) {
     setBusy(action);
     setError(null);
     try {
@@ -70,7 +95,7 @@ export function PatchCard({ status, now, onActivate, onScan, onDeactivate }: Pat
   let message: string;
   switch (phase) {
     case 'off':
-      message = "Answer one question to find where the patch goes, then activate the sensors.";
+      message = "Activate the sensors. The app then asks the patient's position and shows where to place the patch.";
       break;
     case 'activating':
       message = activationOverdue(device, now)
@@ -78,8 +103,9 @@ export function PatchCard({ status, now, onActivate, onScan, onDeactivate }: Pat
         : 'Waiting for the patch to switch its sensors on...';
       break;
     case 'ready':
-      message =
-        'Sensors are on and sending readings. Keep the patient still, then scan the initial readings to set their baseline.';
+      message = askPosition
+        ? 'Sensors are on. Answer the question below to see where to place the patch.'
+        : `Patch placed on the ${device.site?.toLowerCase() ?? 'patient'}. Keep the patient still, then scan the initial readings to set their baseline.`;
       break;
     case 'scanning':
       message = 'Taking the initial readings for 1 minute. Continuous monitoring starts after.';
@@ -165,6 +191,13 @@ export function PatchCard({ status, now, onActivate, onScan, onDeactivate }: Pat
       )}
 
       {phase === 'off' && (
+        <Button
+          title="Activate sensors"
+          loading={busy === 'activate'}
+          onPress={() => run('activate', onActivate)}
+        />
+      )}
+      {askPosition && (
         <View style={styles.question}>
           <ThemedText type="smallBold">What best describes the patient&apos;s current position?</ThemedText>
           <View role="radiogroup" aria-label="Patient's current position" style={styles.options}>
@@ -203,26 +236,48 @@ export function PatchCard({ status, now, onActivate, onScan, onDeactivate }: Pat
               <ThemedText type="heading">{chosen.site}</ThemedText>
               <ThemedText type="small">{chosen.instruction}</ThemedText>
               <ThemedText type="caption" themeColor="textSecondary">
-                Press firmly so the whole sensor touches the skin, then activate.
+                Press firmly so the whole sensor touches the skin.
               </ThemedText>
             </View>
           )}
 
           {chosen && (
             <Button
-              title="Patch placed: activate sensors"
-              loading={busy === 'activate'}
-              onPress={() => run('activate', () => onActivate(chosen.value))}
+              title="Patch placed: continue"
+              loading={busy === 'position'}
+              onPress={() =>
+                run('position', async () => {
+                  await onChoosePosition(chosen.value);
+                  setChangingPosition(false);
+                })
+              }
+            />
+          )}
+          {changingPosition && (
+            <Button
+              title="Keep current position"
+              variant="secondary"
+              onPress={() => setChangingPosition(false)}
             />
           )}
         </View>
       )}
-      {phase === 'ready' && (
-        <Button
-          title="Scan initial readings"
-          loading={busy === 'scan'}
-          onPress={() => run('scan', onScan)}
-        />
+      {phase === 'ready' && !askPosition && (
+        <>
+          <Button
+            title="Scan initial readings"
+            loading={busy === 'scan'}
+            onPress={() => run('scan', onScan)}
+          />
+          <Button
+            title="Change position"
+            variant="secondary"
+            onPress={() => {
+              setPosition(savedPosition);
+              setChangingPosition(true);
+            }}
+          />
+        </>
       )}
       {phase === 'monitoring' && (
         <Button
@@ -232,14 +287,58 @@ export function PatchCard({ status, now, onActivate, onScan, onDeactivate }: Pat
           onPress={() => run('scan', onScan)}
         />
       )}
-      {phase !== 'off' && (
+      {phase === 'activating' && (
         <Button
-          title={phase === 'activating' ? 'Cancel' : 'Deactivate sensors'}
+          title="Cancel activation"
           variant="secondary"
           color={theme.danger}
           loading={busy === 'deactivate'}
           onPress={() => run('deactivate', onDeactivate)}
         />
+      )}
+      {phase !== 'off' && phase !== 'activating' && !confirmingDeactivate && (
+        <Button
+          title="Deactivate patch"
+          variant="secondary"
+          color={theme.danger}
+          onPress={() => setConfirmingDeactivate(true)}
+        />
+      )}
+      {phase !== 'off' && phase !== 'activating' && confirmingDeactivate && (
+        <View
+          role="alert"
+          style={[
+            styles.confirm,
+            { backgroundColor: theme.alertBackground, borderColor: theme.alertBorder },
+          ]}>
+          <ThemedText type="smallBold" style={{ color: theme.alertText }}>
+            Deactivate the patch?
+          </ThemedText>
+          <ThemedText type="small" style={{ color: theme.alertText }}>
+            The sensors switch off and monitoring stops: no more alerts or caretaker SMS.
+            {device.wearStartedAt
+              ? ` The wear session (${formatDuration(now - Date.parse(device.wearStartedAt))}) ends,`
+              : ''}{' '}
+            and the next patch needs a new initial scan. Remove the patch from the patient after
+            deactivating.
+          </ThemedText>
+          <Button
+            title="Yes, deactivate patch"
+            color={theme.onTint}
+            loading={busy === 'deactivate'}
+            onPress={() =>
+              run('deactivate', async () => {
+                await onDeactivate();
+                setConfirmingDeactivate(false);
+              })
+            }
+          />
+          <Button
+            title="Keep monitoring"
+            variant="secondary"
+            onPress={() => setConfirmingDeactivate(false)}
+          />
+        </View>
       )}
 
       {error && (
@@ -332,6 +431,12 @@ const styles = StyleSheet.create({
   },
   optionLabel: {
     flexShrink: 1,
+  },
+  confirm: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: Spacing.three,
+    gap: Spacing.two,
   },
   placement: {
     borderLeftWidth: 4,

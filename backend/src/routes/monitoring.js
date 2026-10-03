@@ -12,6 +12,7 @@ import {
   deactivate,
   getDeviceStatus,
   NOT_ACTIVE,
+  setPosition,
   startCalibration,
 } from '../services/device-session.js';
 import { ingestReading, readingSchema } from '../services/ingest.js';
@@ -48,16 +49,22 @@ monitoringRouter.get('/device', async (req, res) => {
   res.json(await getDeviceStatus(req.patient.deviceId));
 });
 
-const activateSchema = z.object({
-  /** The patient's usual position, which decides where the patch goes. */
-  position: z.enum(POSITIONS, { error: "Choose the patient's current position." }).optional(),
-});
-
 /** Switches the patch's sensors on; it confirms within a few seconds. */
 monitoringRouter.post('/device/activate', async (req, res) => {
-  const { position } = validate(activateSchema, req.body);
   const { deviceId, patientId } = req.patient;
-  res.json(await activate(deviceId, patientId, position));
+  res.json(await activate(deviceId, patientId));
+});
+
+const positionSchema = z.object({
+  /** The patient's usual position, which decides where the patch goes. */
+  position: z.enum(POSITIONS, { error: "Choose the patient's current position." }),
+});
+
+/** The patient's position, asked once the sensors are on: says where the patch was placed. */
+monitoringRouter.post('/device/position', async (req, res) => {
+  const { position } = validate(positionSchema, req.body);
+  const { deviceId, patientId } = req.patient;
+  res.json(await setPosition(deviceId, patientId, position));
 });
 
 /** Switches the patch's sensors off and ends the wear session. */

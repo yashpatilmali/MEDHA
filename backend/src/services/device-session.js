@@ -35,20 +35,29 @@ export async function getDeviceStatus(deviceId) {
   return statusOf((await DeviceState.findOne({ deviceId })) ?? new DeviceState({ deviceId }));
 }
 
-/**
- * Asks the patch to switch its sensors on; it confirms on its next check-in. `position` is the
- * patient's usual position, which says where the patch was placed.
- */
-export function activate(deviceId, patientId, position = null, now = new Date()) {
+/** Asks the patch to switch its sensors on. It confirms on its next check-in. */
+export function activate(deviceId, patientId, now = new Date()) {
   return serialize(deviceId, async () => {
     const state = await loadState(deviceId, patientId);
     if (!state.active) {
       state.active = true;
       state.activatedAt = now;
     }
-    if (position) {
-      state.position = position;
+    return saveAndPublish(state);
+  });
+}
+
+/**
+ * Records the patient's usual position, asked once the sensors are on. It says where the patch
+ * was placed, which the app shows and the caretaker's SMS names.
+ */
+export function setPosition(deviceId, patientId, position) {
+  return serialize(deviceId, async () => {
+    const state = await loadState(deviceId, patientId);
+    if (!state.active) {
+      throw new HttpError(409, NOT_ACTIVE);
     }
+    state.position = position;
     return saveAndPublish(state);
   });
 }
@@ -59,6 +68,8 @@ export function deactivate(deviceId, patientId, now = new Date()) {
     const state = await loadState(deviceId, patientId);
     Object.assign(state, {
       active: false,
+      // The next patch may go somewhere else: the position is asked again.
+      position: null,
       lastWear: state.wearStartedAt
         ? { startedAt: state.wearStartedAt, endedAt: now }
         : state.lastWear,
