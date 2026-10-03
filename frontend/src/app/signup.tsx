@@ -13,7 +13,7 @@ import { Spacing } from '@/constants/theme';
 import { useSession } from '@/context/session';
 import { useTheme } from '@/hooks/use-theme';
 import { ApiError } from '@/api/client';
-import { isValidContact, isValidMobile } from '@/utils/contact';
+import { isValidMobile } from '@/utils/contact';
 import { SEX_OPTIONS, type Sex } from '@/types/patient';
 
 type Form = {
@@ -37,9 +37,7 @@ function validate(form: Form): Errors {
   if (form.name.trim().length < 2) errors.name = "Enter the patient's full name.";
   if (!form.age || age < 1 || age > 120) errors.age = 'Enter an age between 1 and 120.';
   if (!form.sex) errors.sex = "Select the patient's sex.";
-  if (!isValidContact(form.contact)) {
-    errors.contact = 'Enter a valid email address or mobile number.';
-  }
+  if (!isValidMobile(form.contact)) errors.contact = 'Enter a valid mobile number.';
   if (form.caretakerName.trim().length < 2) errors.caretakerName = "Enter the caretaker's name.";
   if (!isValidMobile(form.caretakerPhone)) {
     errors.caretakerPhone = 'Enter a valid mobile number for SMS alerts.';
@@ -148,14 +146,13 @@ export default function SignupScreen() {
       </View>
 
       <TextField
-        label="Email / Mobile Number"
+        label="Mobile Number"
         value={form.contact}
         onChangeText={(value) => update('contact', value)}
         error={errors.contact}
-        placeholder="you@example.com or 9876543210"
-        autoCapitalize="none"
-        autoCorrect={false}
-        keyboardType="email-address"
+        placeholder="e.g. 9876543210 or +919876543210"
+        keyboardType="phone-pad"
+        // Also the login username, so password managers save it with the password.
         autoComplete="username"
         textContentType="username"
       />

@@ -2,6 +2,7 @@ import nodemailer from 'nodemailer';
 
 import { config } from '../config.js';
 import { isEmail } from './contact.js';
+import { sendSms } from './sms.js';
 
 const transport = config.smtp
   ? nodemailer.createTransport({
@@ -13,11 +14,18 @@ const transport = config.smtp
   : null;
 
 /**
- * Emails the code when SMTP is configured and the account uses an email address. Otherwise
- * (no SMTP, or a mobile-number account, since no SMS provider is set up) the code is written to the
- * server log, where whoever runs the server can read it out to the patient.
+ * Texts the code to a mobile-number account (through Twilio, or the server log without it).
+ * Emails it to an older email account when SMTP is configured; otherwise the code is written to
+ * the server log, where whoever runs the server can read it out to the patient.
  */
 export async function sendResetCode(contact, code, minutesValid) {
+  if (!isEmail(contact)) {
+    await sendSms(
+      contact,
+      `Your Medha password reset code is ${code}. It expires in ${minutesValid} minutes.`
+    );
+    return;
+  }
   if (transport && isEmail(contact)) {
     await transport.sendMail({
       from: config.smtp.from,

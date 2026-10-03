@@ -58,7 +58,7 @@ const rahul = {
   name: '  Rahul   Sharma ',
   age: 68,
   sex: 'Male',
-  contact: ' Rahul@Example.COM ',
+  contact: ' +91 98765 00001 ',
   password: 'secret1',
   caretakerName: ' Sunita  Sharma ',
   caretakerPhone: '98765 11111',
@@ -91,7 +91,7 @@ describe('registration', () => {
         name: 'Rahul Sharma',
         age: 68,
         sex: 'Male',
-        contact: 'rahul@example.com',
+        contact: '+919876500001',
         deviceId: 'SP-ESP32-001',
         caretaker: { name: 'Sunita Sharma', phone: '9876511111' },
         createdAt: undefined,
@@ -107,7 +107,7 @@ describe('registration', () => {
   });
 
   test('blocks duplicate accounts however the email or mobile is typed', async () => {
-    for (const contact of ['RAHUL@example.com', '+91 (98765) 43210']) {
+    for (const contact of ['+91 (98765) 00001', '+91 98765.43210']) {
       const response = await api('/api/auth/register', {
         method: 'POST',
         body: { ...priya, contact },
@@ -141,6 +141,15 @@ describe('registration', () => {
     ]);
   });
 
+  test('only takes a mobile number, not an email address', async () => {
+    const response = await api('/api/auth/register', {
+      method: 'POST',
+      body: { ...priya, contact: 'priya@example.com' },
+    });
+    assert.equal(response.status, 400);
+    assert.deepEqual(Object.keys(response.body.fields), ['contact']);
+  });
+
   test('never returns or stores the password', async () => {
     const stored = await mongoose.connection.collection('patients').findOne({ patientId: 'SP001' });
     assert.ok(stored.passwordHash.startsWith('$2'));
@@ -149,10 +158,10 @@ describe('registration', () => {
 });
 
 describe('login', () => {
-  test('accepts the email in any case, and the mobile number', async () => {
+  test('accepts the mobile number however it is typed', async () => {
     const byEmail = await api('/api/auth/login', {
       method: 'POST',
-      body: { contact: 'RAHUL@example.com', password: 'secret1' },
+      body: { contact: '+91-98765-00001', password: 'secret1' },
     });
     assert.equal(byEmail.status, 200);
     assert.equal(byEmail.body.patient.id, 'SP001');
@@ -167,11 +176,11 @@ describe('login', () => {
   test('gives the same answer for a wrong password and an unknown account', async () => {
     const wrongPassword = await api('/api/auth/login', {
       method: 'POST',
-      body: { contact: 'rahul@example.com', password: 'nope' },
+      body: { contact: '+919876500001', password: 'nope' },
     });
     const unknown = await api('/api/auth/login', {
       method: 'POST',
-      body: { contact: 'nobody@example.com', password: 'secret1' },
+      body: { contact: '+919999999999', password: 'secret1' },
     });
     assert.equal(wrongPassword.status, 401);
     assert.deepEqual(wrongPassword.body, unknown.body);
@@ -190,42 +199,55 @@ describe('password reset', () => {
     try {
       const response = await api('/api/auth/forgot-password', { method: 'POST', body: { contact } });
       assert.equal(response.status, 200);
-      const line = log.mock.calls.map((call) => call.arguments.join(' ')).find((text) => /Code for/.test(text));
-      return line?.match(/: (\d{6})/)[1];
+      const line = log.mock.calls
+        .map((call) => call.arguments.join(' '))
+        .find((text) => /reset code is/.test(text));
+      return line?.match(/code is (\d{6})/)[1];
     } finally {
       log.mock.restore();
     }
   }
 
+  test('texts the code to the mobile number', async () => {
+    const log = mock.method(console, 'log', () => {});
+    try {
+      await api('/api/auth/forgot-password', { method: 'POST', body: { contact: '+919876500001' } });
+      const line = log.mock.calls.map((call) => call.arguments.join(' ')).find((text) => /reset code/.test(text));
+      assert.match(line, /^\[sms\] To \+919876500001: Your Medha password reset code is \d{6}\./);
+    } finally {
+      log.mock.restore();
+    }
+  });
+
   test('replies the same way for unknown accounts', async () => {
-    assert.equal(await requestCode('nobody@example.com'), undefined);
+    assert.equal(await requestCode('+919999999999'), undefined);
   });
 
   test('a correct code sets the new password, once', async () => {
-    const code = await requestCode('rahul@example.com');
+    const code = await requestCode('+919876500001');
     assert.match(code, /^\d{6}$/);
 
     const wrong = String((Number(code) + 1) % 1_000_000).padStart(6, '0');
     const rejected = await api('/api/auth/reset-password', {
       method: 'POST',
-      body: { contact: 'rahul@example.com', code: wrong, password: 'newpass1' },
+      body: { contact: '+919876500001', code: wrong, password: 'newpass1' },
     });
     assert.equal(rejected.status, 400);
 
     const accepted = await api('/api/auth/reset-password', {
       method: 'POST',
-      body: { contact: 'Rahul@Example.com', code, password: 'newpass1' },
+      body: { contact: '+91 98765 00001', code, password: 'newpass1' },
     });
     assert.equal(accepted.status, 200);
 
     const login = (password) =>
-      api('/api/auth/login', { method: 'POST', body: { contact: 'rahul@example.com', password } });
+      api('/api/auth/login', { method: 'POST', body: { contact: '+919876500001', password } });
     assert.equal((await login('secret1')).status, 401);
     assert.equal((await login('newpass1')).status, 200);
 
     const reused = await api('/api/auth/reset-password', {
       method: 'POST',
-      body: { contact: 'rahul@example.com', code, password: 'another1' },
+      body: { contact: '+919876500001', code, password: 'another1' },
     });
     assert.equal(reused.status, 400);
   });
@@ -460,7 +482,7 @@ describe('live updates', () => {
   test('send the latest reading on connect, then each new reading and alert', async () => {
     const login = await api('/api/auth/login', {
       method: 'POST',
-      body: { contact: 'rahul@example.com', password: 'newpass1' },
+      body: { contact: '+919876500001', password: 'newpass1' },
     });
     const socket = connect(login.body.token);
     try {

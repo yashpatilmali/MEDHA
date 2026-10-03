@@ -16,7 +16,7 @@ import { sendResetCode } from '../services/mailer.js';
 const MIN_PASSWORD_LENGTH = 6;
 const RESET_CODE_MINUTES = 15;
 const MAX_RESET_ATTEMPTS = 5;
-const DUPLICATE_ACCOUNT = 'An account with this email or mobile number already exists.';
+const DUPLICATE_ACCOUNT = 'An account with this mobile number already exists.';
 
 // Compared against when no account matches, so a failed login takes as long either way.
 const UNUSED_HASH = bcrypt.hashSync(crypto.randomBytes(16).toString('hex'), 10);
@@ -40,6 +40,17 @@ const contactField = z
     return contact;
   });
 
+/** Mobile number with spaces, dashes and brackets removed; the same form login looks up. */
+const mobileField = (message) =>
+  z.string({ error: message }).transform((value, ctx) => {
+    const mobile = normalizeMobile(value);
+    if (!mobile) {
+      ctx.addIssue({ code: 'custom', message });
+      return z.NEVER;
+    }
+    return mobile;
+  });
+
 const passwordField = z
   .string({ error: 'Choose a password.' })
   .min(MIN_PASSWORD_LENGTH, `Use at least ${MIN_PASSWORD_LENGTH} characters.`)
@@ -57,23 +68,15 @@ const registerSchema = z.object({
     .min(1, 'Enter an age between 1 and 120.')
     .max(120, 'Enter an age between 1 and 120.'),
   sex: z.enum(SEX_OPTIONS, { error: "Select the patient's sex." }),
-  contact: contactField,
+  /** Accounts are registered with a mobile number only. Older email accounts can still log in. */
+  contact: mobileField('Enter a valid mobile number.'),
   password: passwordField,
   caretakerName: z
     .string({ error: "Enter the caretaker's name." })
     .trim()
     .min(2, "Enter the caretaker's name.")
     .max(80, 'Use 80 characters or fewer.'),
-  caretakerPhone: z
-    .string({ error: "Enter the caretaker's mobile number." })
-    .transform((value, ctx) => {
-      const phone = normalizeMobile(value);
-      if (!phone) {
-        ctx.addIssue({ code: 'custom', message: 'Enter a valid mobile number for SMS alerts.' });
-        return z.NEVER;
-      }
-      return phone;
-    }),
+  caretakerPhone: mobileField('Enter a valid mobile number for SMS alerts.'),
 });
 
 const loginSchema = z.object({

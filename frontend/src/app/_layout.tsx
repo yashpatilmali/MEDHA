@@ -1,6 +1,7 @@
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useColorScheme } from 'react-native';
+import { KeyboardProvider } from 'react-native-keyboard-controller';
 
 import { SplashOverlay } from '@/components/splash-overlay';
 import { SessionProvider, useSession } from '@/context/session';
@@ -10,12 +11,15 @@ SplashScreen.preventAutoHideAsync();
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   return (
-    <SessionProvider>
-      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-        <RootNavigator />
-        <SplashOverlay />
-      </ThemeProvider>
-    </SessionProvider>
+    // KeyboardProvider powers the keyboard-aware scrolling on the login and signup forms.
+    <KeyboardProvider>
+      <SessionProvider>
+        <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+          <RootNavigator />
+          <SplashOverlay />
+        </ThemeProvider>
+      </SessionProvider>
+    </KeyboardProvider>
   );
 }
 
