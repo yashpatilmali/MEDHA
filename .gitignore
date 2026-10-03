@@ -30,7 +30,8 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
+# local env files (secrets and per-machine settings; .env.example files are committed)
+.env
 .env*.local
 
 # typescript
@@ -39,5 +40,5 @@ yarn-error.*
 example
 
 # generated native folders
-/ios
-/android
+/frontend/ios
+/frontend/android
