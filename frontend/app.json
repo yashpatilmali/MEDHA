@@ -14,7 +14,9 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.medha.sparsh",
+      "versionCode": 1
     },
     "web": {
       "output": "static",
@@ -35,6 +37,13 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "72bbf898-3c4c-4f48-9a54-cb1ff7b5087b"
+      }
+    },
+    "owner": "vikas_more"
   }
 }
