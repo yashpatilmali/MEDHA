@@ -8,7 +8,7 @@ import { Reading } from '../models/reading.js';
 import { publish } from '../realtime.js';
 import { notifyCaretaker, shouldNotify } from './caretaker-alerts.js';
 import { serialize } from './device-queue.js';
-import { calculateRisk, elevatedPressure } from './risk-engine.js';
+import { ALERT_PRESSURE, calculateRisk } from './risk-engine.js';
 
 /** One reading: FSR402 pressure plus SHTC3 temperature and humidity. */
 export const readingSchema = z.object({
@@ -101,7 +101,7 @@ export function ingestReading(deviceId, reading, receivedAt = new Date()) {
     let pressureDuration = 0;
     let risk = null;
     if (baseline) {
-      if (reading.pressure >= elevatedPressure(baseline)) {
+      if (reading.pressure >= ALERT_PRESSURE) {
         highPressureSince = (continuous && state.highPressureSince) || receivedAt;
         pressureDuration = Math.floor((receivedAt - highPressureSince) / 1000);
       }
@@ -132,7 +132,6 @@ export function ingestReading(deviceId, reading, receivedAt = new Date()) {
         at: receivedAt,
         ...reading,
         pressureDuration,
-        riskScore: risk?.riskScore,
         riskLevel: risk?.riskLevel,
       });
       state.lastStoredAt = receivedAt;
@@ -145,7 +144,8 @@ export function ingestReading(deviceId, reading, receivedAt = new Date()) {
           at: receivedAt,
           ...reading,
           pressureDuration,
-          riskScore: risk.riskScore,
+          riskLevel: risk.riskLevel,
+          triggers: risk.triggers,
         })
       : null;
 
@@ -161,7 +161,7 @@ export function ingestReading(deviceId, reading, receivedAt = new Date()) {
     await state.save();
 
     if (textCaretaker) {
-      notifyCaretaker(patient, risk, pressureDuration, state.position);
+      notifyCaretaker(patient, { reading, risk, pressureDuration, position: state.position });
     }
     const snapshot = state.toSnapshot();
     publish(patientId, 'reading', snapshot);

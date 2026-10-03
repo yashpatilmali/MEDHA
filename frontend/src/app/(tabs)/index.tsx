@@ -1,9 +1,9 @@
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { CalibrationCard } from '@/components/calibration-card';
-import { CriticalAlert } from '@/components/critical-alert';
+import { AttentionAlert } from '@/components/attention-alert';
+import { AttentionChecks } from '@/components/attention-checks';
 import { PatchCard } from '@/components/patch-card';
-import { RiskBreakdown } from '@/components/risk-breakdown';
 import { ScreenTitle } from '@/components/screen-title';
 import { SensorCard } from '@/components/sensor-card';
 import { SparshMark } from '@/components/sparsh-logo';
@@ -23,9 +23,8 @@ import { formatSigned } from '@/utils/format';
 import { patchPhase } from '@/utils/patch';
 
 const RISK_MESSAGES: Record<RiskLevel, string> = {
-  NORMAL: 'Continue monitoring',
-  ATTENTION: 'Readings are rising above baseline: watch the pressure zone',
-  CRITICAL: 'Check / reposition the patient now',
+  NORMAL: 'All readings within the patient\'s baseline rules. Continue monitoring.',
+  ATTENTION: 'Please check / reposition the patient.',
 };
 
 const STATUS_LABELS: Record<Connection, string> = {
@@ -68,19 +67,21 @@ function Dashboard({ patient, token }: { patient: Patient; token: string }) {
   const riskColor: Record<RiskLevel, string> = {
     NORMAL: theme.normal,
     ATTENTION: theme.attention,
-    CRITICAL: theme.danger,
   };
-  const scoreColors = [theme.normal, theme.attention, theme.danger];
+  const ruleColor = (met: boolean) => (met ? theme.attention : theme.normal);
 
   const unscored = {
     status: phase === 'scanning' ? 'Scanning...' : 'Not scanned yet',
     statusColor: theme.textSecondary,
   };
 
-  /** A sensor's rise above baseline, colored by its score; unscored until the initial scan. */
-  function sensorStatus(delta: number | undefined, score: number | undefined, unit: string) {
-    if (delta === undefined || score === undefined) return unscored;
-    return { status: `${formatSigned(delta)} ${unit} vs baseline`, statusColor: scoreColors[score] };
+  /** A sensor's change from the baseline, colored by its rule; unscored until the initial scan. */
+  function sensorStatus(change: number | null | undefined, met: boolean | undefined, unit: string) {
+    if (met === undefined) return unscored;
+    return {
+      status: change === null || change === undefined ? 'No baseline' : `${formatSigned(change)} ${unit} vs baseline`,
+      statusColor: ruleColor(met),
+    };
   }
 
   const statusColor: Record<Connection, string> = {
@@ -165,7 +166,7 @@ function Dashboard({ patient, token }: { patient: Patient; token: string }) {
           )}
 
           {risk?.immediateAlert && (
-            <CriticalAlert reading={reading} risk={risk} duration={pressureDuration} />
+            <AttentionAlert reading={reading} risk={risk} duration={pressureDuration} />
           )}
 
           {risk && (
@@ -176,14 +177,8 @@ function Dashboard({ patient, token }: { patient: Patient; token: string }) {
                 CURRENT STATUS
               </ThemedText>
               <ThemedText style={[styles.riskLevel, { color: riskColor[risk.riskLevel] }]}>
-                {risk.riskLevel}
+                {risk.riskLevel === 'ATTENTION' ? '🟡 ATTENTION' : '🟢 NORMAL'}
               </ThemedText>
-              <View style={styles.scoreRow}>
-                <ThemedText style={styles.score}>{risk.riskScore}</ThemedText>
-                <ThemedText themeColor="textSecondary" style={styles.scoreMax}>
-                  / {risk.maxScore}
-                </ThemedText>
-              </View>
               <ThemedText type="small" themeColor="textSecondary" style={styles.centerText}>
                 {RISK_MESSAGES[risk.riskLevel]}
               </ThemedText>
@@ -195,34 +190,45 @@ function Dashboard({ patient, token }: { patient: Patient; token: string }) {
               title="PRESSURE"
               value={reading.pressure.toFixed(1)}
               unit={PRESSURE_UNIT}
-              {...sensorStatus(risk?.deltas.pressure, risk?.pressureScore, PRESSURE_UNIT)}
+              {...(risk
+                ? {
+                    status: reading.pressure >= risk.thresholds.pressure
+                      ? `Over ${risk.thresholds.pressure} ${PRESSURE_UNIT}`
+                      : `Below ${risk.thresholds.pressure} ${PRESSURE_UNIT}`,
+                    statusColor: ruleColor(reading.pressure >= risk.thresholds.pressure),
+                  }
+                : unscored)}
             />
             <SensorCard
               title="TEMPERATURE"
               value={reading.temperature.toFixed(1)}
               unit="deg C"
-              {...sensorStatus(risk?.deltas.temperature, risk?.temperatureScore, 'deg C')}
+              {...sensorStatus(risk?.deltas.temperature, risk?.triggers.temperature, 'deg C')}
             />
             <SensorCard
               title="HUMIDITY"
               value={reading.humidity.toFixed(1)}
               unit="%RH"
-              {...sensorStatus(risk?.deltas.humidity, risk?.humidityScore, '%RH')}
+              {...sensorStatus(risk?.percentChanges.humidity, risk?.triggers.humidity, '%')}
             />
             <SensorCard
-              title="PRESSURE DURATION"
+              title="TIME OVER 32 mmHg"
               value={String(pressureDuration)}
               unit="sec"
               {...(risk
                 ? {
-                    status: risk.durationScore >= 1 ? 'Sustained' : 'Monitoring',
-                    statusColor: scoreColors[risk.durationScore],
+                    status: risk.triggers.pressure
+                      ? `Held ≥ ${risk.thresholds.durationSeconds} s`
+                      : pressureDuration > 0
+                        ? `ATTENTION at ${risk.thresholds.durationSeconds} s`
+                        : 'Not under high pressure',
+                    statusColor: ruleColor(risk.triggers.pressure),
                   }
                 : unscored)}
             />
           </View>
 
-          {risk && <RiskBreakdown risk={risk} />}
+          {risk && <AttentionChecks reading={reading} risk={risk} duration={pressureDuration} />}
 
           {status && phase === 'monitoring' && (
             <CalibrationCard calibration={status.calibration} now={now} />
@@ -334,21 +340,6 @@ const styles = StyleSheet.create({
     borderRadius: Spacing.three,
     padding: Spacing.four,
     gap: Spacing.one,
-  },
-  scoreRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: Spacing.two,
-  },
-  score: {
-    fontSize: 56,
-    lineHeight: 64,
-    fontWeight: 800,
-  },
-  scoreMax: {
-    fontSize: 22,
-    lineHeight: 28,
-    fontWeight: 600,
   },
   riskLevel: {
     fontSize: 24,

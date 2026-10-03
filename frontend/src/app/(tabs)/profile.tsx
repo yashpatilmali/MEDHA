@@ -20,6 +20,18 @@ import type { Patient } from '@/types/patient';
 
 const RECENT_ALERTS = 5;
 
+/** What turned the status ATTENTION, e.g. "Pressure + temperature". */
+function alertReason(alert: AlertEvent) {
+  if (!alert.triggers) return 'Alert';
+  const reasons = [
+    alert.triggers.pressure && 'pressure',
+    alert.triggers.temperature && 'temperature',
+    alert.triggers.humidity && 'humidity',
+  ].filter(Boolean);
+  const text = reasons.join(' + ') || 'alert';
+  return text[0].toUpperCase() + text.slice(1);
+}
+
 export default function ProfileScreen() {
   const { patient, signOut } = useSession();
   // Briefly null while logging out, before the tabs unmount.
@@ -102,7 +114,7 @@ function Profile({ patient, onSignOut }: { patient: Patient; onSignOut: () => Pr
 
       <ThemedView type="backgroundElement" style={[styles.card, { borderColor: theme.border }]}>
         <View style={styles.row}>
-          <ThemedText type="smallBold">Critical alerts</ThemedText>
+          <ThemedText type="smallBold">Attention alerts</ThemedText>
           {alerts && (
             <ThemedText type="small" themeColor="textSecondary">
               {alerts.length} recorded
@@ -114,15 +126,14 @@ function Profile({ patient, onSignOut }: { patient: Patient; onSignOut: () => Pr
           <ActivityIndicator color={theme.textSecondary} style={styles.loading} />
         ) : alerts.length === 0 ? (
           <ThemedText type="small" themeColor="textSecondary" style={styles.empty}>
-            No critical alerts recorded for {patient.id} yet.
+            No attention alerts recorded for {patient.id} yet.
           </ThemedText>
         ) : (
           alerts.slice(0, RECENT_ALERTS).map((alert) => (
             <View key={alert.at} style={[styles.row, styles.divider, divider]}>
               <ThemedText type="small">{formatDateTime(alert.at)}</ThemedText>
-              <ThemedText type="smallBold" style={{ color: theme.danger }}>
-                {alert.pressure.toFixed(1)} {PRESSURE_UNIT} | {alert.temperature.toFixed(1)} deg C |
-                score {alert.riskScore}
+              <ThemedText type="smallBold" style={[styles.value, { color: theme.attention }]}>
+                {alertReason(alert)} | {alert.pressure.toFixed(1)} {PRESSURE_UNIT}
               </ThemedText>
             </View>
           ))

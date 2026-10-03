@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 
-/** An immediate alert: pressure stayed at or above the alert level for the alert duration. */
+/** Recorded each time a patient's status turns ATTENTION. */
 const alertSchema = new mongoose.Schema(
   {
     patientId: { type: String, required: true },
@@ -10,6 +10,10 @@ const alertSchema = new mongoose.Schema(
     temperature: Number,
     humidity: Number,
     pressureDuration: Number,
+    riskLevel: String,
+    /** Which rules caused it: { pressure, temperature, humidity }. */
+    triggers: { pressure: Boolean, temperature: Boolean, humidity: Boolean },
+    /** Only on alerts from the earlier scored model. */
     riskScore: Number,
   },
   { versionKey: false }
@@ -26,7 +30,8 @@ alertSchema.methods.toJSONForApp = function toJSONForApp() {
     temperature: this.temperature,
     humidity: this.humidity,
     pressureDuration: this.pressureDuration,
-    riskScore: this.riskScore,
+    // Null on alerts recorded before the two-state rules.
+    triggers: this.triggers?.pressure === undefined ? null : this.triggers,
   };
 };
 

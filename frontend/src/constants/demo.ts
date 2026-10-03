@@ -1,11 +1,4 @@
-import type {
-  AlertEvent,
-  Baseline,
-  Calibration,
-  PatchStatus,
-  RiskLevel,
-  Snapshot,
-} from '@/types/monitoring';
+import type { AlertEvent, Baseline, Calibration, PatchStatus, Snapshot } from '@/types/monitoring';
 import { PATCH_POSITIONS, type PatchPosition } from '@/constants/positions';
 import type { Patient } from '@/types/patient';
 
@@ -28,11 +21,11 @@ export const DEMO_ALERTS: AlertEvent[] = [
     id: 'demo-alert-1',
     at: new Date(Date.now() - 18 * 60 * 1000).toISOString(),
     deviceId: DEMO_PATIENT.deviceId,
-    pressure: 40.2,
-    temperature: 35.1,
-    humidity: 52,
-    pressureDuration: 60,
-    riskScore: 10,
+    pressure: 36.2,
+    temperature: 33.4,
+    humidity: 48,
+    pressureDuration: 10,
+    triggers: { pressure: true, temperature: false, humidity: false },
   },
 ];
 
@@ -62,8 +55,6 @@ export const DEMO_SESSION_OFF: DemoSession = {
 };
 
 const iso = (time: number | null) => (time === null ? null : new Date(time).toISOString());
-const tier = (value: number, first: number, second: number) =>
-  value >= second ? 2 : value >= first ? 1 : 0;
 const round = (value: number) => Number(value.toFixed(1));
 
 function demoCalibration(now: number, scanStartedAt: number | null): Calibration {
@@ -114,10 +105,12 @@ export function demoSnapshot(now: number, session: DemoSession): Snapshot | null
   const { device, calibration } = demoStatus(now, session);
   if (!device.deviceActive) return null;
 
-  const wave = Math.sin(now / 9000);
-  const pressure = round(26 + wave * 8);
-  const temperature = round(33.6 + wave * 0.6);
-  const humidity = round(48 + wave * 4);
+  // One cycle about every 57 s; pressure is over 32 mmHg for about 15 s of it.
+  const phase = (now / 9000) % (2 * Math.PI);
+  const wave = Math.sin(phase);
+  const pressure = round(26 + wave * 9);
+  const temperature = round(33.1 + wave * 0.15);
+  const humidity = round(46 + wave * 3);
   const base = {
     deviceId: DEMO_PATIENT.deviceId,
     reading: { pressure, temperature, humidity },
@@ -128,35 +121,37 @@ export function demoSnapshot(now: number, session: DemoSession): Snapshot | null
   };
   if (calibration.status !== 'complete') return { ...base, risk: null };
 
-  const deltas = {
-    pressure: round(pressure - DEMO_BASELINE.pressure),
-    temperature: round(temperature - DEMO_BASELINE.temperature),
-    humidity: round(humidity - DEMO_BASELINE.humidity),
+  // The same rules as the backend: 32 mmHg held 10 s, +0.5 °C, +50 % humidity.
+  const overFrom = Math.asin((32 - 26) / 9);
+  const pressureDuration = pressure >= 32 ? Math.max(0, Math.floor(((phase - overFrom) * 9000) / 1000)) : 0;
+  const humidityPercent = round(((humidity - DEMO_BASELINE.humidity) / DEMO_BASELINE.humidity) * 100);
+  const triggers = {
+    pressure: pressure >= 32 && pressureDuration >= 10,
+    temperature: temperature - DEMO_BASELINE.temperature >= 0.5 - 1e-9,
+    humidity: humidityPercent >= 50,
   };
-  const weights = { pressure: 2, temperature: 2, humidity: 1, duration: 2 };
-  const pressureScore = tier(deltas.pressure, 10, 25);
-  const temperatureScore = tier(deltas.temperature, 1, 2);
-  const humidityScore = tier(deltas.humidity, 10, 20);
-  const riskScore =
-    weights.pressure * pressureScore +
-    weights.temperature * temperatureScore +
-    weights.humidity * humidityScore;
-  const riskLevel: RiskLevel =
-    riskScore <= 3 ? 'NORMAL' : riskScore <= 7 ? 'ATTENTION' : 'CRITICAL';
+  const attention = triggers.pressure || triggers.temperature || triggers.humidity;
+  const percent = (value: number, baseline: number) => round(((value - baseline) / baseline) * 100);
 
   return {
     ...base,
+    pressureDuration,
     risk: {
-      pressureScore,
-      temperatureScore,
-      humidityScore,
-      durationScore: 0,
-      riskScore,
-      riskLevel,
-      immediateAlert: riskLevel === 'CRITICAL',
-      deltas,
-      maxScore: 14,
-      weights,
+      riskLevel: attention ? 'ATTENTION' : 'NORMAL',
+      immediateAlert: attention,
+      triggers,
+      deltas: {
+        pressure: round(pressure - DEMO_BASELINE.pressure),
+        temperature: round(temperature - DEMO_BASELINE.temperature),
+        humidity: round(humidity - DEMO_BASELINE.humidity),
+      },
+      percentChanges: {
+        pressure: percent(pressure, DEMO_BASELINE.pressure),
+        temperature: percent(temperature, DEMO_BASELINE.temperature),
+        humidity: humidityPercent,
+      },
+      pressureAttentionPercent: percent(32, DEMO_BASELINE.pressure),
+      thresholds: { pressure: 32, durationSeconds: 10, temperatureRise: 0.5, humidityRisePercent: 50 },
     },
   };
 }

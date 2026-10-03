@@ -181,7 +181,7 @@ export default function SignupScreen() {
       <View style={styles.section}>
         <ThemedText type="heading">Caretaker</ThemedText>
         <ThemedText type="small" themeColor="textSecondary">
-          Only receives SMS alerts when the patient&apos;s status turns ATTENTION or CRITICAL. No
+          Only receives SMS alerts when the patient&apos;s status turns ATTENTION. No
           account or password is created for the caretaker.
         </ThemedText>
       </View>

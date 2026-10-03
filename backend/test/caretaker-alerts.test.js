@@ -11,69 +11,58 @@ const MINUTE = 60 * 1000;
 const now = 100 * MINUTE;
 
 describe('when the caretaker is texted', () => {
-  test('when the status rises to ATTENTION or CRITICAL', () => {
+  test('when the status turns ATTENTION', () => {
     assert.equal(shouldNotify({ level: 'ATTENTION', previousLevel: 'NORMAL', now }), true);
-    assert.equal(shouldNotify({ level: 'CRITICAL', previousLevel: 'ATTENTION', now }), true);
-    assert.equal(shouldNotify({ level: 'CRITICAL', previousLevel: undefined, now }), true);
+    assert.equal(shouldNotify({ level: 'ATTENTION', previousLevel: undefined, now }), true);
   });
 
-  test('not for NORMAL, or while the status stays the same or falls', () => {
-    assert.equal(shouldNotify({ level: 'NORMAL', previousLevel: 'NORMAL', now }), false);
+  test('not for NORMAL, or while it stays ATTENTION', () => {
+    assert.equal(shouldNotify({ level: 'NORMAL', previousLevel: 'ATTENTION', now }), false);
     assert.equal(shouldNotify({ level: 'ATTENTION', previousLevel: 'ATTENTION', now }), false);
-    assert.equal(shouldNotify({ level: 'ATTENTION', previousLevel: 'CRITICAL', now }), false);
   });
 
-  test('not again for the same or a lower level within the cooldown', () => {
-    const lastNotified = { level: 'CRITICAL', at: now - 5 * MINUTE };
+  test('not again within the cooldown', () => {
+    const lastNotified = { level: 'ATTENTION', at: now - 5 * MINUTE };
     assert.equal(shouldNotify({ level: 'ATTENTION', previousLevel: 'NORMAL', lastNotified, now }), false);
-    assert.equal(shouldNotify({ level: 'CRITICAL', previousLevel: 'NORMAL', lastNotified, now }), false);
     assert.equal(
-      shouldNotify({ level: 'CRITICAL', previousLevel: 'NORMAL', lastNotified, now: now + 6 * MINUTE }),
+      shouldNotify({ level: 'ATTENTION', previousLevel: 'NORMAL', lastNotified, now: now + 6 * MINUTE }),
       true
     );
-  });
-
-  test('a rise to CRITICAL is sent even just after an ATTENTION text', () => {
-    const lastNotified = { level: 'ATTENTION', at: now - MINUTE };
-    assert.equal(shouldNotify({ level: 'CRITICAL', previousLevel: 'ATTENTION', lastNotified, now }), true);
   });
 });
 
 describe('the message', () => {
   const patient = { name: 'Rahul Sharma', patientId: 'SP001' };
+  const details = (triggers, extra = {}) => ({
+    reading: { pressure: 33, temperature: 36.9, humidity: 60 },
+    risk: {
+      riskLevel: 'ATTENTION',
+      triggers: { pressure: false, temperature: false, humidity: false, ...triggers },
+      deltas: { pressure: 9, temperature: 0.5, humidity: 20 },
+      percentChanges: { pressure: 37.5, temperature: 1.4, humidity: 50 },
+    },
+    pressureDuration: 12,
+    ...extra,
+  });
 
-  test('says what rose above the baseline, in one SMS', () => {
-    const message = alertMessage(
-      patient,
-      { riskLevel: 'CRITICAL', deltas: { pressure: 28, temperature: 2.1, humidity: -1.5 } },
-      60
-    );
+  test('says why, where and the readings, in one SMS', () => {
+    const message = alertMessage(patient, details({ pressure: true }, { position: 'right_side' }));
     assert.equal(
       message,
-      'MEDHA CRITICAL: Rahul Sharma (SP001) needs checking and repositioning now. ' +
-        'pressure +28 mmHg for 60s, temp +2.1C, humidity -1.5% vs baseline.'
+      'MEDHA ATTENTION: Rahul Sharma (SP001): prolonged pressure. Please check/reposition. ' +
+        'Right hip: 33 mmHg for 12s, temp +0.5C, humidity +50% vs baseline.'
     );
     assert.ok(message.length <= 160, `${message.length} characters`);
   });
 
-  test('ATTENTION asks the caretaker to check', () => {
-    const message = alertMessage(
-      patient,
-      { riskLevel: 'ATTENTION', deltas: { pressure: 12, temperature: 1, humidity: 0 } },
-      0
-    );
-    assert.match(message, /^MEDHA ATTENTION: .*pressure \+12 mmHg, temp \+1C.*Please check the patch site\.$/);
+  test('lists every rule that triggered', () => {
+    const message = alertMessage(patient, details({ pressure: true, temperature: true, humidity: true }));
+    assert.match(message, /: prolonged pressure, skin temperature rising, skin moisture rising\. /);
   });
 
-  test('names the patch site from the position chosen at activation', () => {
-    const message = alertMessage(
-      patient,
-      { riskLevel: 'CRITICAL', deltas: { pressure: 28, temperature: 2.1, humidity: -1.5 } },
-      60,
-      'right_side'
-    );
-    assert.match(message, /now\. Right hip: pressure \+28 mmHg for 60s/);
-    assert.ok(message.length <= 160, `${message.length} characters`);
+  test('leaves out the duration when pressure is not held', () => {
+    const message = alertMessage(patient, details({ temperature: true }, { pressureDuration: 0 }));
+    assert.match(message, /skin temperature rising\. Please check\/reposition\. 33 mmHg, temp \+0\.5C/);
   });
 });
 

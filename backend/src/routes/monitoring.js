@@ -95,12 +95,11 @@ monitoringRouter.get('/history', async (req, res) => {
     .lean();
 
   res.json({
-    readings: readings.map(({ at, pressure, temperature, humidity, riskScore, riskLevel }) => ({
+    readings: readings.map(({ at, pressure, temperature, humidity, riskLevel }) => ({
       at: at.toISOString(),
       pressure,
       temperature,
       humidity,
-      riskScore,
       riskLevel,
     })),
   });

@@ -2,7 +2,7 @@ export const SEX_OPTIONS = ['Male', 'Female', 'Other'] as const;
 
 export type Sex = (typeof SEX_OPTIONS)[number];
 
-/** The person texted when readings reach ATTENTION or CRITICAL. */
+/** The person texted when readings turn ATTENTION. */
 export interface Caretaker {
   name: string;
   /** Mobile number (digits, optional leading +). */

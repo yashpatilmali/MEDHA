@@ -327,26 +327,18 @@ describe('activation, initial scan and wear time', () => {
     assert.equal((await control('/calibration')).status, 409);
   });
 
-  test('activating only accepts the listed positions', async () => {
-    const response = await api('/api/monitoring/device/activate', {
-      method: 'POST',
-      body: { position: 'standing' },
-      token: priyaToken,
-    });
-    assert.equal(response.status, 400);
-    assert.ok(response.body.fields.position);
+  const choosePosition = (position) =>
+    api('/api/monitoring/device/position', { method: 'POST', body: { position }, token: priyaToken });
+
+  test('the position can only be chosen once the sensors are activated', async () => {
+    assert.equal((await choosePosition('right_side')).status, 409);
   });
 
   test('activate in the app, then the patch switches on and confirms', async () => {
-    const activated = await api('/api/monitoring/device/activate', {
-      method: 'POST',
-      body: { position: 'right_side' },
-      token: priyaToken,
-    });
+    const activated = await control('/device/activate');
     assert.equal(activated.status, 200);
     assert.equal(activated.body.device.active, true);
-    assert.equal(activated.body.device.position, 'right_side');
-    assert.equal(activated.body.device.site, 'Right hip');
+    assert.equal(activated.body.device.position, null);
     assert.equal(activated.body.device.deviceActive, false);
 
     const told = await heartbeat({ active: false });
@@ -357,6 +349,17 @@ describe('activation, initial scan and wear time', () => {
     assert.equal(body.device.deviceActive, true);
     assert.equal(body.device.sensorsOk, true);
     assert.equal(body.calibration.status, 'none');
+  });
+
+  test('once activated, the position is asked and names the patch site', async () => {
+    const invalid = await choosePosition('standing');
+    assert.equal(invalid.status, 400);
+    assert.ok(invalid.body.fields.position);
+
+    const chosen = await choosePosition('right_side');
+    assert.equal(chosen.status, 200);
+    assert.equal(chosen.body.device.position, 'right_side');
+    assert.equal(chosen.body.device.site, 'Right hip');
   });
 
   test('readings are shown but not scored until the initial scan', async () => {
@@ -395,6 +398,7 @@ describe('activation, initial scan and wear time', () => {
   test('deactivating ends the wear session and switches the patch off', async () => {
     const { body } = await control('/device/deactivate');
     assert.equal(body.device.active, false);
+    assert.equal(body.device.position, null);
     assert.equal(body.device.wearStartedAt, null);
     assert.ok(body.device.lastWear.startedAt && body.device.lastWear.endedAt);
     assert.equal(body.calibration.status, 'none');
@@ -451,7 +455,7 @@ describe('calibration, levels and alerts', () => {
   const start = Date.now() - 20 * 60 * 1000;
   const at = (seconds) => new Date(start + seconds * 1000);
   const normal = (second) => ({ pressure: second % 4 ? 13 : 11, temperature: 33, humidity: 45 });
-  /** 28 mmHg over the baseline: ATTENTION, CRITICAL once held for 60 s. */
+  /** Over 32 mmHg: ATTENTION once held for 10 s. */
   const high = { pressure: 40, temperature: 33, humidity: 45 };
 
   /** Sends a reading every 2 s for `seconds` from `from`; returns the last snapshot. */
@@ -484,32 +488,35 @@ describe('calibration, levels and alerts', () => {
     assert.equal(scored.risk.riskLevel, 'NORMAL');
   });
 
-  test('sustained pressure goes from ATTENTION to CRITICAL, alerts once and texts the caretaker', async () => {
+  test('pressure of 32 mmHg or more turns ATTENTION after 10 s, alerts once and texts the caretaker', async () => {
     const log = mock.method(console, 'log', () => {});
     const texts = () =>
       log.mock.calls.map((call) => call.arguments.join(' ')).filter((line) => line.startsWith('[sms]'));
 
     const first = await ingestReading('SP-ESP32-001', high, at(62));
-    assert.equal(first.risk.riskLevel, 'ATTENTION');
-    assert.equal(texts().length, 1);
-    assert.match(texts()[0], /^\[sms\] To \+919876511111: MEDHA ATTENTION: Rahul Sharma \(SP001\)/);
-    assert.deepEqual(first.risk.deltas, { pressure: 28, temperature: 0, humidity: 0 });
+    assert.equal(first.risk.riskLevel, 'NORMAL');
+    assert.equal(first.pressureDuration, 0);
 
-    const before = await hold(() => high, 64, 58);
-    assert.equal(before.pressureDuration, 58);
-    assert.equal(before.risk.riskLevel, 'ATTENTION');
+    const before = await hold(() => high, 64, 8);
+    assert.equal(before.pressureDuration, 8);
+    assert.equal(before.risk.riskLevel, 'NORMAL');
+    assert.equal(texts().length, 0);
 
-    const critical = await ingestReading('SP-ESP32-001', high, at(122));
-    assert.equal(critical.pressureDuration, 60);
-    assert.equal(critical.risk.riskLevel, 'CRITICAL');
-    assert.equal(critical.risk.immediateAlert, true);
+    const attention = await ingestReading('SP-ESP32-001', high, at(72));
+    assert.equal(attention.pressureDuration, 10);
+    assert.equal(attention.risk.riskLevel, 'ATTENTION');
+    assert.equal(attention.risk.immediateAlert, true);
+    assert.deepEqual(attention.risk.triggers, { pressure: true, temperature: false, humidity: false });
+    assert.equal(attention.risk.pressureAttentionPercent, 166.7);
 
-    await hold(() => high, 124, 10);
-    assert.equal(await Alert.countDocuments({ patientId: 'SP001' }), 1);
-
+    await hold(() => high, 74, 60);
     log.mock.restore();
-    assert.equal(texts().length, 2);
-    assert.match(texts()[1], /MEDHA CRITICAL: .* pressure \+28 mmHg for 60s, temp 0C, humidity 0% vs baseline\.$/);
+    assert.equal(await Alert.countDocuments({ patientId: 'SP001' }), 1);
+    assert.equal(texts().length, 1);
+    assert.match(
+      texts()[0],
+      /^\[sms\] To \+919876511111: MEDHA ATTENTION: Rahul Sharma \(SP001\): prolonged pressure\. .*40 mmHg for 10s/
+    );
   });
 
   test('history is sampled, not stored for every reading', async () => {
@@ -540,7 +547,8 @@ describe('calibration, levels and alerts', () => {
 
     const alerts = await api('/api/monitoring/alerts', { token: rahulToken });
     assert.equal(alerts.body.total, 1);
-    assert.equal(alerts.body.alerts[0].pressureDuration, 60);
+    assert.equal(alerts.body.alerts[0].pressureDuration, 10);
+    assert.equal(alerts.body.alerts[0].triggers.pressure, true);
 
     assert.equal((await api('/api/monitoring/latest')).status, 401);
   });
@@ -605,14 +613,14 @@ describe('live updates', () => {
       await ingestReading('SP-ESP32-001', { pressure: 12, temperature: 33, humidity: 45 }, new Date(base));
       assert.equal((await nextReading).reading.pressure, 12);
 
-      // High pressure on skin 2 °C warmer than the baseline is CRITICAL straight away.
+      // Skin 0.5 °C warmer than the baseline is ATTENTION straight away.
       const alert = once(socket, 'alert');
       await ingestReading(
         'SP-ESP32-001',
-        { pressure: 40, temperature: 35, humidity: 45 },
+        { pressure: 12, temperature: 33.5, humidity: 45 },
         new Date(base + 1000)
       );
-      assert.equal((await alert).riskScore, 8);
+      assert.deepEqual((await alert).triggers, { pressure: false, temperature: true, humidity: false });
 
       const status = once(socket, 'status');
       await api('/api/monitoring/calibration', { method: 'POST', token: login.body.token });

@@ -1,25 +1,37 @@
 import type { PatchPosition } from '@/constants/positions';
 import type { SensorData } from '@/types/sensor';
 
-export type RiskLevel = 'NORMAL' | 'ATTENTION' | 'CRITICAL';
-export const MAX_RISK_SCORE = 14;
+/** NORMAL, or ATTENTION when any rule against the patient's baseline is met. */
+export type RiskLevel = 'NORMAL' | 'ATTENTION';
 
-/** The backend's scoring of one reading against the patient's baseline. */
+/** Which rules put a reading in ATTENTION. */
+export interface Triggers {
+  /** ≥ 32 mmHg held for ≥ 10 s. */
+  pressure: boolean;
+  /** ≥ 0.5 °C above the baseline. */
+  temperature: boolean;
+  /** ≥ 50 % above the baseline, relative to it. */
+  humidity: boolean;
+}
+
+/** The backend's check of one reading against the patient's baseline. */
 export interface Risk {
-  pressureScore: number;
-  temperatureScore: number;
-  humidityScore: number;
-  durationScore: number;
-  riskScore: number;
   riskLevel: RiskLevel;
-  /** True while CRITICAL. */
+  /** True while ATTENTION. */
   immediateAlert: boolean;
-  /** How far each value is above (or, if negative, below) the baseline. */
+  triggers: Triggers;
+  /** Change from the baseline, in each sensor's unit. */
   deltas: SensorData;
-  /** Highest possible riskScore. */
-  maxScore: number;
-  /** How much each score counts towards riskScore. */
-  weights: { pressure: number; temperature: number; humidity: number; duration: number };
+  /** Change from the baseline in %; null when the baseline is 0. */
+  percentChanges: { pressure: number | null; temperature: number | null; humidity: number | null };
+  /** The patient's personal equivalent of 32 mmHg, as a % rise from their baseline pressure. */
+  pressureAttentionPercent: number | null;
+  thresholds: {
+    pressure: number;
+    durationSeconds: number;
+    temperatureRise: number;
+    humidityRisePercent: number;
+  };
 }
 
 /** The patient's normal values: the average of the 1-minute calibration. */
@@ -76,7 +88,7 @@ export interface Snapshot {
   reading: SensorData;
   /** When the backend received the reading (ISO 8601). */
   receivedAt: string;
-  /** Seconds pressure has stayed elevated above the baseline. */
+  /** Seconds pressure has stayed at or above 32 mmHg. */
   pressureDuration: number;
   /** Null until the initial scan has set the baseline. */
   risk: Risk | null;
@@ -89,12 +101,12 @@ export interface AlertEvent extends SensorData {
   at: string;
   deviceId: string;
   pressureDuration: number;
-  riskScore: number;
+  /** Null on alerts recorded before the two-state rules. */
+  triggers: Triggers | null;
 }
 
 export interface HistoryPoint extends SensorData {
   at: string;
-  /** Missing for readings taken while calibrating. */
-  riskScore?: number;
+  /** Missing for readings taken before the initial scan finished. */
   riskLevel?: RiskLevel;
 }

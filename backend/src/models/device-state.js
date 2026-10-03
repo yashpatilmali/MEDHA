@@ -55,7 +55,7 @@ const deviceStateSchema = new mongoose.Schema(
     pressureDuration: Number,
     /** Null while calibrating: there is no baseline to score against. */
     risk: mongoose.Schema.Types.Mixed,
-    /** Whether the reading was CRITICAL at the last reading. */
+    /** Whether the last reading was ATTENTION. */
     alerting: Boolean,
     /** When a reading was last copied into the history collection. */
     lastStoredAt: Date,

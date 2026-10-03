@@ -12,6 +12,7 @@ const readingSchema = new mongoose.Schema(
     temperature: Number,
     humidity: Number,
     pressureDuration: Number,
+    /** Only on readings from the earlier scored model. */
     riskScore: Number,
     riskLevel: String,
   },

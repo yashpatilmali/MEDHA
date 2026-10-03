@@ -6,11 +6,13 @@
  *
  *   npm run simulate -- --device SP-ESP32-001 --scenario cycle
  *
- * Scenarios:
- *   cycle      (default) normal → pressure held on warming, damp skin → relief, repeating
+ * Scenarios (baseline about 12 mmHg, 33 °C, 45 % RH):
+ *   cycle      (default) normal → 36 mmHg held (ATTENTION after 10 s) → relief, repeating
  *   normal     NORMAL
- *   sustained  pressure 28 mmHg over baseline: ATTENTION, CRITICAL after 60 s
- *   high       pressure on skin 2 °C warmer and much damper: CRITICAL straight away
+ *   sustained  38 mmHg held: ATTENTION after 10 s
+ *   warm       skin 0.8 °C warmer than the baseline: ATTENTION straight away
+ *   damp       humidity 55 % above the baseline: ATTENTION straight away
+ *   high       all three at once
  *
  * Options: --url (default http://localhost:PORT), --key (default DEVICE_API_KEY from .env),
  *          --interval in ms (default 1000)
@@ -42,21 +44,16 @@ const normal = () => ({ pressure: jitter(12, 1), temperature: jitter(33, 0.1), h
 
 const scenarios = {
   normal,
-  sustained: () => ({ pressure: jitter(40, 1), temperature: jitter(33.2, 0.1), humidity: jitter(46, 1) }),
-  high: () => ({ pressure: jitter(40, 1), temperature: jitter(35.2, 0.1), humidity: jitter(66, 1) }),
+  sustained: () => ({ pressure: jitter(38, 1), temperature: jitter(33, 0.1), humidity: jitter(45, 1) }),
+  warm: () => ({ pressure: jitter(14, 1), temperature: jitter(33.8, 0.05), humidity: jitter(46, 1) }),
+  damp: () => ({ pressure: jitter(14, 1), temperature: jitter(33.1, 0.05), humidity: jitter(70, 0.5) }),
+  high: () => ({ pressure: jitter(40, 1), temperature: jitter(33.9, 0.05), humidity: jitter(70, 0.5) }),
   cycle: (seconds) => {
-    const t = seconds % 140;
+    const t = seconds % 100;
     if (t < 20) return normal();
-    if (t < 110) {
-      // Pressure held on one spot: skin warms up and gets damper the longer it lasts.
-      const progress = (t - 20) / 90;
-      return {
-        pressure: jitter(32, 1),
-        temperature: jitter(33 + progress * 2.4, 0.1),
-        humidity: jitter(45 + progress * 18, 1),
-      };
-    }
-    return { pressure: jitter(12, 1), temperature: jitter(34, 0.1), humidity: jitter(50, 1) };
+    // Pressure held on one spot, comfortably over 32 mmHg.
+    if (t < 70) return { pressure: jitter(36, 1), temperature: jitter(33.2, 0.05), humidity: jitter(46, 1) };
+    return normal();
   },
 };
 
@@ -131,8 +128,10 @@ for (;;) {
           monitoringSince = null;
         }
         const state = risk
-          ? `${risk.riskLevel} ${risk.riskScore}/${risk.maxScore}, held ${pressureDuration} s` +
-            (risk.immediateAlert ? '   ⚠ CRITICAL ALERT' : '')
+          ? `${risk.riskLevel}, ≥32 mmHg for ${pressureDuration} s` +
+            (risk.immediateAlert
+              ? `   ⚠ ${Object.keys(risk.triggers).filter((key) => risk.triggers[key]).join(' + ')}`
+              : '')
           : calibration.status === 'none'
             ? 'activated, waiting for "Scan initial readings"'
             : `scanning initial readings (${calibration.samples})`;

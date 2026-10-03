@@ -13,7 +13,7 @@ const patientSchema = new mongoose.Schema(
     contact: { type: String, required: true, unique: true },
     /** The ESP32 assigned to this patient: SP-ESP32-001, … */
     deviceId: { type: String, required: true, unique: true },
-    /** Texted when readings reach ATTENTION or CRITICAL. Missing on accounts made before it was asked. */
+    /** Texted when readings turn ATTENTION. Missing on accounts made before it was asked. */
     caretakerName: { type: String, trim: true },
     caretakerPhone: String,
     passwordHash: { type: String, required: true },

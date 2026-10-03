@@ -38,7 +38,7 @@ deviceRouter.post('/:deviceId/heartbeat', requireDevice, async (req, res) => {
  *   { "pressure": 33.4, "temperature": 36.7, "humidity": 34.2 }
  *
  * The reply includes the risk (null until the initial scan is done), so the device can sound a
- * local buzzer on `risk.immediateAlert`, and `activate`. When the sensors are deactivated in the
+ * local buzzer on `risk.immediateAlert` (true while ATTENTION), and `activate`. When the sensors are deactivated in the
  * app, the reading is refused with 409 and `"activate": false`, so the ESP32 switches them off.
  */
 deviceRouter.post('/:deviceId/readings', requireDevice, async (req, res) => {

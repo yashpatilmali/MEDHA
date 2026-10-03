@@ -1,91 +1,86 @@
 /**
- * Medha rule-based status, scored against the patient's own baseline (the 1-minute calibration
- * average). A trained model can replace `calculateRisk` later: it only needs to return the same
- * shape.
+ * SPARSH two-state status: NORMAL or ATTENTION, judged against each patient's own baseline (the
+ * 1-minute initial scan) rather than one raw value for everyone.
  *
- * Risk = 2 × pressure score + 2 × temperature score + humidity score + 2 × duration score
+ * ATTENTION when any of these holds:
+ *   pressure     ≥ 32 mmHg, held for ≥ 10 s
+ *   temperature  ≥ 0.5 °C above the baseline
+ *   humidity     ≥ 50 % above the baseline (relative change)
+ *
+ * These are prototype engineering rules derived from the observations in the reference paper
+ * (an alert at 32 mmHg with 10 s loading, a 0.5 °C rise, a 50 % humidity rise). They are not
+ * clinically validated thresholds.
  */
 
-export const LEVELS = ['NORMAL', 'ATTENTION', 'CRITICAL'];
+/** mmHg. Attention once pressure stays at or above this for ALERT_DURATION_SEC. */
+export const ALERT_PRESSURE = 32;
+export const ALERT_DURATION_SEC = 10;
+/** °C above the baseline. */
+export const TEMPERATURE_RISE = 0.5;
+/** % above the baseline, relative to it. */
+export const HUMIDITY_RISE_PERCENT = 50;
 
-export const WEIGHTS = { pressure: 2, temperature: 2, humidity: 1, duration: 2 };
-
-/** Each score is 0, 1 or 2. */
-export const MAX_RISK_SCORE =
-  2 * (WEIGHTS.pressure + WEIGHTS.temperature + WEIGHTS.humidity + WEIGHTS.duration);
-
-/**
- * Rise above baseline that scores 1 and 2. Only rises count: cooler, drier or less pressure is
- * not a pressure-injury sign.
- */
 export const THRESHOLDS = {
-  /** mmHg above baseline. Pressure at or above the first value counts as "elevated". */
-  pressure: [10, 25],
-  /** °C above baseline. A local rise of 1–2 °C is an early sign of tissue damage. */
-  temperature: [1, 2],
-  /** %RH above baseline. Moisture softens skin and makes it easier to injure. */
-  humidity: [10, 20],
-  /** Seconds pressure has stayed elevated. Demo scale: clinical repositioning is every ~2 h. */
-  duration: [30, 60],
+  pressure: ALERT_PRESSURE,
+  durationSeconds: ALERT_DURATION_SEC,
+  temperatureRise: TEMPERATURE_RISE,
+  humidityRisePercent: HUMIDITY_RISE_PERCENT,
 };
 
-/** Score above which the level is ATTENTION, and CRITICAL. */
-export const LEVEL_LIMITS = { attention: 3, critical: 7 };
+// Sensor values have one decimal, so differences like 36.6 - 36.1 can land a hair under 0.5.
+const EPSILON = 1e-9;
 
-function tier(value, [first, second]) {
-  if (value >= second) return 2;
-  if (value >= first) return 1;
-  return 0;
+const round1 = (value) => Math.round(value * 10) / 10;
+
+/** ((value - baseline) / baseline) × 100, or null when the baseline is 0 or below. */
+function rawPercentChange(value, baseline) {
+  return baseline > 0 ? ((value - baseline) / baseline) * 100 : null;
 }
 
-const round = (value) => Math.round(value * 10) / 10;
+export function percentChange(value, baseline) {
+  const change = rawPercentChange(value, baseline);
+  return change === null ? null : round1(change);
+}
 
-/** The pressure that counts as elevated for this baseline. */
-export function elevatedPressure(baseline) {
-  return baseline.pressure + THRESHOLDS.pressure[0];
+/** The patient's personal equivalent of 32 mmHg, e.g. +33.3 % for a 24 mmHg baseline. */
+export function pressureAttentionPercent(baselinePressure) {
+  return percentChange(ALERT_PRESSURE, baselinePressure);
 }
 
 /**
- * Scores one reading against the baseline. `duration` is how many seconds pressure has stayed
- * at or above `elevatedPressure(baseline)`.
+ * Scores a reading against the baseline. `pressureDuration` is how many seconds pressure has
+ * stayed at or above ALERT_PRESSURE.
  */
-export function calculateRisk(reading, baseline, duration) {
-  const deltas = {
-    pressure: round(reading.pressure - baseline.pressure),
-    temperature: round(reading.temperature - baseline.temperature),
-    humidity: round(reading.humidity - baseline.humidity),
+export function calculateRisk(reading, baseline, pressureDuration) {
+  const temperatureRise = reading.temperature - baseline.temperature;
+  const humidityChange = rawPercentChange(reading.humidity, baseline.humidity);
+
+  const triggers = {
+    pressure: reading.pressure >= ALERT_PRESSURE && pressureDuration >= ALERT_DURATION_SEC,
+    temperature: temperatureRise >= TEMPERATURE_RISE - EPSILON,
+    humidity: humidityChange !== null && humidityChange >= HUMIDITY_RISE_PERCENT - EPSILON,
   };
-  const pressureScore = tier(deltas.pressure, THRESHOLDS.pressure);
-  const temperatureScore = tier(deltas.temperature, THRESHOLDS.temperature);
-  const humidityScore = tier(deltas.humidity, THRESHOLDS.humidity);
-  const durationScore = tier(duration, THRESHOLDS.duration);
-
-  const riskScore =
-    WEIGHTS.pressure * pressureScore +
-    WEIGHTS.temperature * temperatureScore +
-    WEIGHTS.humidity * humidityScore +
-    WEIGHTS.duration * durationScore;
-
-  let riskLevel;
-  if (riskScore <= LEVEL_LIMITS.attention) {
-    riskLevel = 'NORMAL';
-  } else if (riskScore <= LEVEL_LIMITS.critical) {
-    riskLevel = 'ATTENTION';
-  } else {
-    riskLevel = 'CRITICAL';
-  }
+  const riskLevel = triggers.pressure || triggers.temperature || triggers.humidity ? 'ATTENTION' : 'NORMAL';
 
   return {
-    pressureScore,
-    temperatureScore,
-    humidityScore,
-    durationScore,
-    riskScore,
     riskLevel,
-    /** True while CRITICAL: the app shows an alert and the ESP32 can sound its buzzer. */
-    immediateAlert: riskLevel === 'CRITICAL',
-    deltas,
-    maxScore: MAX_RISK_SCORE,
-    weights: WEIGHTS,
+    /** True while ATTENTION: the patch buzzes, the alert is recorded and the caretaker is texted. */
+    immediateAlert: riskLevel === 'ATTENTION',
+    /** Which rules put the reading in ATTENTION. */
+    triggers,
+    /** Change from the baseline, in each sensor's unit. */
+    deltas: {
+      pressure: round1(reading.pressure - baseline.pressure),
+      temperature: round1(temperatureRise),
+      humidity: round1(reading.humidity - baseline.humidity),
+    },
+    /** Change from the baseline in %; null when the baseline is 0. */
+    percentChanges: {
+      pressure: percentChange(reading.pressure, baseline.pressure),
+      temperature: percentChange(reading.temperature, baseline.temperature),
+      humidity: humidityChange === null ? null : round1(humidityChange),
+    },
+    pressureAttentionPercent: pressureAttentionPercent(baseline.pressure),
+    thresholds: THRESHOLDS,
   };
 }
