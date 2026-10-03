@@ -5,22 +5,32 @@ import { ThemedText } from '@/components/themed-text';
 import { PRESSURE_UNIT } from '@/constants/monitor';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import type { Risk } from '@/types/monitoring';
 import type { SensorData } from '@/types/sensor';
+import { formatSigned } from '@/utils/format';
 
-type PressureAlertProps = {
+type CriticalAlertProps = {
   reading: SensorData;
-  /** Seconds pressure has stayed at or above the alert level. */
+  risk: Risk;
+  /** Seconds pressure has stayed elevated above the baseline. */
   duration: number;
 };
 
-export function PressureAlert({ reading, duration }: PressureAlertProps) {
+export function CriticalAlert({ reading, risk, duration }: CriticalAlertProps) {
   const theme = useTheme();
+  const { deltas } = risk;
 
   const details = [
-    { label: 'Pressure', value: `${reading.pressure.toFixed(1)} ${PRESSURE_UNIT}` },
-    { label: 'Duration', value: `${duration} sec` },
-    { label: 'Temperature', value: `${reading.temperature.toFixed(1)} deg C` },
-    { label: 'Humidity', value: `${reading.humidity.toFixed(1)} %RH` },
+    {
+      label: 'Pressure',
+      value: `${reading.pressure.toFixed(1)} ${PRESSURE_UNIT} (${formatSigned(deltas.pressure)})`,
+    },
+    { label: 'Elevated for', value: `${duration} sec` },
+    {
+      label: 'Temperature',
+      value: `${reading.temperature.toFixed(1)} deg C (${formatSigned(deltas.temperature)})`,
+    },
+    { label: 'Humidity', value: `${reading.humidity.toFixed(1)} %RH (${formatSigned(deltas.humidity)})` },
   ];
 
   return (
@@ -37,11 +47,11 @@ export function PressureAlert({ reading, duration }: PressureAlertProps) {
           size={20}
           tintColor={theme.danger}
         />
-        <ThemedText style={[styles.title, { color: theme.danger }]}>IMMEDIATE ALERT</ThemedText>
+        <ThemedText style={[styles.title, { color: theme.danger }]}>CRITICAL ALERT</ThemedText>
       </View>
 
       <ThemedText type="smallBold" style={{ color: theme.alertText }}>
-        Prolonged pressure detected
+        {"Readings are well above this patient's baseline"}
       </ThemedText>
 
       <View style={styles.details}>

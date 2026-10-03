@@ -29,6 +29,16 @@ function smtpConfig() {
   };
 }
 
+function twilioConfig() {
+  if (!env.TWILIO_ACCOUNT_SID) return null;
+  return {
+    accountSid: env.TWILIO_ACCOUNT_SID,
+    authToken: env.TWILIO_AUTH_TOKEN,
+    /** The Twilio phone number messages are sent from, e.g. +15551234567. */
+    from: env.TWILIO_FROM,
+  };
+}
+
 export const config = {
   isProduction: env.NODE_ENV === 'production',
   port: Number(env.PORT) || 4000,
@@ -45,4 +55,10 @@ export const config = {
   /** How long reading history is kept. */
   historyRetentionDays: Number(env.HISTORY_RETENTION_DAYS) || 30,
   smtp: smtpConfig(),
+  /** Sends caretaker SMS alerts. Without it, the messages are written to the server log. */
+  twilio: twilioConfig(),
+  /** Added to caretaker numbers saved without a country code. */
+  smsCountryCode: env.SMS_COUNTRY_CODE || '+91',
+  /** A caretaker isn't texted again about the same or a lower level within this time. */
+  smsCooldownMinutes: Number(env.SMS_COOLDOWN_MINUTES) || 10,
 };

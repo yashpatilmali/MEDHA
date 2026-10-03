@@ -13,7 +13,7 @@ import { Spacing } from '@/constants/theme';
 import { useSession } from '@/context/session';
 import { useTheme } from '@/hooks/use-theme';
 import { ApiError } from '@/api/client';
-import { isValidContact } from '@/utils/contact';
+import { isValidContact, isValidMobile } from '@/utils/contact';
 import { SEX_OPTIONS, type Sex } from '@/types/patient';
 
 type Form = {
@@ -21,6 +21,8 @@ type Form = {
   age: string;
   sex: Sex | null;
   contact: string;
+  caretakerName: string;
+  caretakerPhone: string;
   password: string;
   confirmPassword: string;
 };
@@ -38,6 +40,10 @@ function validate(form: Form): Errors {
   if (!isValidContact(form.contact)) {
     errors.contact = 'Enter a valid email address or mobile number.';
   }
+  if (form.caretakerName.trim().length < 2) errors.caretakerName = "Enter the caretaker's name.";
+  if (!isValidMobile(form.caretakerPhone)) {
+    errors.caretakerPhone = 'Enter a valid mobile number for SMS alerts.';
+  }
   if (form.password.length < MIN_PASSWORD_LENGTH) {
     errors.password = `Use at least ${MIN_PASSWORD_LENGTH} characters.`;
   }
@@ -54,6 +60,8 @@ export default function SignupScreen() {
     age: '',
     sex: null,
     contact: '',
+    caretakerName: '',
+    caretakerPhone: '',
     password: '',
     confirmPassword: '',
   });
@@ -81,6 +89,8 @@ export default function SignupScreen() {
         sex: form.sex,
         contact: form.contact,
         password: form.password,
+        caretakerName: form.caretakerName,
+        caretakerPhone: form.caretakerPhone,
       });
     } catch (e) {
       if (e instanceof ApiError) {
@@ -151,7 +161,7 @@ export default function SignupScreen() {
       />
 
       <TextField
-        label="Password"
+        label="Patient Account Password"
         password
         value={form.password}
         onChangeText={(value) => update('password', value)}
@@ -169,6 +179,33 @@ export default function SignupScreen() {
         error={errors.confirmPassword}
         autoComplete="new-password"
         textContentType="newPassword"
+      />
+
+      <View style={styles.section}>
+        <ThemedText type="heading">Caretaker</ThemedText>
+        <ThemedText type="small" themeColor="textSecondary">
+          Only receives SMS alerts when the patient&apos;s status turns ATTENTION or CRITICAL. No
+          account or password is created for the caretaker.
+        </ThemedText>
+      </View>
+
+      <TextField
+        label="Caretaker Name"
+        value={form.caretakerName}
+        onChangeText={(value) => update('caretakerName', value)}
+        error={errors.caretakerName}
+        placeholder="e.g. Sunita Sharma"
+        autoCapitalize="words"
+      />
+
+      <TextField
+        label="Caretaker Mobile Number"
+        value={form.caretakerPhone}
+        onChangeText={(value) => update('caretakerPhone', value)}
+        error={errors.caretakerPhone}
+        placeholder="e.g. 9876543210 or +919876543210"
+        keyboardType="phone-pad"
+        autoComplete="off"
         returnKeyType="go"
         onSubmitEditing={handleSignup}
       />
@@ -196,6 +233,10 @@ export default function SignupScreen() {
 const styles = StyleSheet.create({
   field: {
     gap: Spacing.one + Spacing.half,
+  },
+  section: {
+    gap: Spacing.half,
+    marginTop: Spacing.two,
   },
   link: {
     fontSize: 14,

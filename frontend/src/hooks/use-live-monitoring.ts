@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
 
 import { api, handleUnauthorized } from '@/api/client';
 import { API_URL } from '@/api/config';
 import { TREND_MINUTES } from '@/constants/monitor';
 import { DEMO_MODE, demoSnapshot } from '@/constants/demo';
-import type { HistoryPoint, Snapshot } from '@/types/monitoring';
+import type { Calibration, HistoryPoint, Snapshot } from '@/types/monitoring';
 
 export type Connection = 'connecting' | 'connected' | 'disconnected';
 
@@ -31,15 +31,31 @@ function mergeHistory(history: HistoryPoint[], live: TrendPoint[]) {
   return [...earlier, ...live];
 }
 
+/** A new calibration means the last risk was scored against a baseline that no longer applies. */
+function withCalibration(snapshot: Snapshot | null, calibration: Calibration): Snapshot | null {
+  if (!snapshot) return null;
+  return {
+    ...snapshot,
+    calibration,
+    risk: calibration.status === 'complete' ? snapshot.risk : null,
+  };
+}
+
 /**
- * Live readings for the logged-in patient over Socket.IO. The backend sends the latest reading on
- * connect and every new one after that; the chart starts from recent history.
+ * Live readings for the logged-in patient over Socket.IO. The backend sends the latest reading (or
+ * the calibration status, before the first reading) on connect and every new one after that; the
+ * chart starts from recent history.
  */
 export function useLiveMonitoring(token: string) {
   const [connection, setConnection] = useState<Connection>(DEMO_MODE ? 'connected' : 'connecting');
   const [snapshot, setSnapshot] = useState<Snapshot | null>(() =>
     DEMO_MODE ? demoSnapshot() : null
   );
+  const [calibration, setCalibration] = useState<Calibration | null>(() =>
+    DEMO_MODE ? demoSnapshot().calibration : null
+  );
+  // Demo mode only: when "Recalibrate" was pressed.
+  const demoCalibrationStart = useRef<number | null>(null);
   const [trend, setTrend] = useState<TrendPoint[]>(() => {
     if (!DEMO_MODE) return [];
     const initial = demoSnapshot();
@@ -52,8 +68,9 @@ export function useLiveMonitoring(token: string) {
     if (DEMO_MODE) {
       const interval = setInterval(() => {
         if (!active) return;
-        const next = demoSnapshot();
+        const next = demoSnapshot(Date.now(), demoCalibrationStart.current);
         setSnapshot(next);
+        setCalibration(next.calibration);
         setTrend((points) => appendPoint(points, next));
       }, 2500);
       return () => {
@@ -74,7 +91,12 @@ export function useLiveMonitoring(token: string) {
     });
     socket.on('reading', (next: Snapshot) => {
       setSnapshot(next);
+      setCalibration(next.calibration);
       setTrend((points) => appendPoint(points, next));
+    });
+    socket.on('calibration', (next: Calibration) => {
+      setCalibration(next);
+      setSnapshot((current) => withCalibration(current, next));
     });
 
     api
@@ -90,5 +112,19 @@ export function useLiveMonitoring(token: string) {
     };
   }, [token]);
 
-  return { connection, snapshot, trend };
+  /** Discards the baseline; the device's next minute of readings becomes the new one. */
+  async function startCalibration() {
+    if (DEMO_MODE) {
+      demoCalibrationStart.current = Date.now();
+      const next = demoSnapshot(Date.now(), demoCalibrationStart.current);
+      setSnapshot(next);
+      setCalibration(next.calibration);
+      return;
+    }
+    const { calibration: next } = await api.startCalibration();
+    setCalibration(next);
+    setSnapshot((current) => withCalibration(current, next));
+  }
+
+  return { connection, snapshot, calibration, trend, startCalibration };
 }

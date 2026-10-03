@@ -1,8 +1,9 @@
 import { AxiosError, create } from 'axios';
 
 import { API_URL } from '@/api/config';
-import type { AlertEvent, HistoryPoint, Snapshot } from '@/types/monitoring';
+import type { AlertEvent, Calibration, HistoryPoint, Snapshot } from '@/types/monitoring';
 import type { NewPatient, Patient } from '@/types/patient';
+import type { SensorData } from '@/types/sensor';
 
 /** A failed request, with a message to show and, for forms, a message per field. */
 export class ApiError extends Error {
@@ -78,6 +79,12 @@ export const api = {
   resetPassword: (contact: string, code: string, password: string) =>
     call<{ message: string }>(http.post('/auth/reset-password', { contact, code, password })),
 
+  /** Saves a reading for the logged-in patient's device and returns it scored. */
+  sendReading: (reading: SensorData) => call<Snapshot>(http.post('/monitoring/readings', reading)),
+  calibration: () => call<{ calibration: Calibration }>(http.get('/monitoring/calibration')),
+  /** Discards the baseline and averages the device's next minute of readings into a new one. */
+  startCalibration: () =>
+    call<{ calibration: Calibration }>(http.post('/monitoring/calibration')),
   latest: () => call<{ snapshot: Snapshot | null }>(http.get('/monitoring/latest')),
   history: (minutes: number) =>
     call<{ readings: HistoryPoint[] }>(http.get('/monitoring/history', { params: { minutes } })),

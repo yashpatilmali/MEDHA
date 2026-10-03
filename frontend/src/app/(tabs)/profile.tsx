@@ -64,6 +64,9 @@ function Profile({ patient, onSignOut }: { patient: Patient; onSignOut: () => Pr
     { label: 'Sex', value: patient.sex },
     { label: isEmail(patient.contact) ? 'Email' : 'Mobile Number', value: patient.contact },
     { label: 'Registered Device ID', value: patient.deviceId },
+    // `?.`: a session saved by an older app version has no caretaker field.
+    { label: 'Caretaker', value: patient.caretaker?.name ?? 'Not added' },
+    { label: 'Caretaker Mobile (SMS alerts)', value: patient.caretaker?.phone ?? '-' },
     { label: 'Account Created', value: formatDate(patient.createdAt) },
   ];
   const divider = { borderTopColor: theme.backgroundSelected };
@@ -99,7 +102,7 @@ function Profile({ patient, onSignOut }: { patient: Patient; onSignOut: () => Pr
 
       <ThemedView type="backgroundElement" style={[styles.card, { borderColor: theme.border }]}>
         <View style={styles.row}>
-          <ThemedText type="smallBold">Pressure alerts</ThemedText>
+          <ThemedText type="smallBold">Critical alerts</ThemedText>
           {alerts && (
             <ThemedText type="small" themeColor="textSecondary">
               {alerts.length} recorded
@@ -111,14 +114,15 @@ function Profile({ patient, onSignOut }: { patient: Patient; onSignOut: () => Pr
           <ActivityIndicator color={theme.textSecondary} style={styles.loading} />
         ) : alerts.length === 0 ? (
           <ThemedText type="small" themeColor="textSecondary" style={styles.empty}>
-            No immediate alerts recorded for {patient.id} yet.
+            No critical alerts recorded for {patient.id} yet.
           </ThemedText>
         ) : (
           alerts.slice(0, RECENT_ALERTS).map((alert) => (
             <View key={alert.at} style={[styles.row, styles.divider, divider]}>
               <ThemedText type="small">{formatDateTime(alert.at)}</ThemedText>
               <ThemedText type="smallBold" style={{ color: theme.danger }}>
-                {alert.pressure.toFixed(1)} {PRESSURE_UNIT} | {alert.pressureDuration} sec
+                {alert.pressure.toFixed(1)} {PRESSURE_UNIT} | {alert.temperature.toFixed(1)} deg C |
+                score {alert.riskScore}
               </ThemedText>
             </View>
           ))

@@ -4,24 +4,25 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { MAX_RISK_SCORE, type Risk } from '@/types/monitoring';
-
-const PRESSURE_WEIGHT = 2;
-const DURATION_WEIGHT = 2;
+import type { Risk } from '@/types/monitoring';
 
 export function RiskBreakdown({ risk }: { risk: Risk }) {
   const theme = useTheme();
 
+  const { weights } = risk;
+  const label = (name: string, weight: number) => `${name} score${weight === 1 ? '' : ` x${weight}`}`;
+  const term = (score: number, weight: number) => (weight === 1 ? `${score}` : `${weight}(${score})`);
+
   const rows = [
-    { label: `Pressure score x${PRESSURE_WEIGHT}`, score: risk.pressureScore },
-    { label: 'Temperature score', score: risk.temperatureScore },
-    { label: 'Humidity score', score: risk.humidityScore },
-    { label: `Duration score x${DURATION_WEIGHT}`, score: risk.durationScore },
+    { label: label('Pressure rise', weights.pressure), score: risk.pressureScore },
+    { label: label('Temperature rise', weights.temperature), score: risk.temperatureScore },
+    { label: label('Humidity rise', weights.humidity), score: risk.humidityScore },
+    { label: label('Duration', weights.duration), score: risk.durationScore },
   ];
 
   return (
     <ThemedView type="backgroundElement" style={[styles.card, { borderColor: theme.border }]}>
-      <ThemedText type="smallBold">Risk calculation</ThemedText>
+      <ThemedText type="smallBold">Risk calculation (rise above baseline)</ThemedText>
 
       {rows.map(({ label, score }) => (
         <View key={label} style={[styles.row, { borderBottomColor: theme.backgroundSelected }]}>
@@ -34,11 +35,12 @@ export function RiskBreakdown({ risk }: { risk: Risk }) {
 
       <View style={styles.totalRow}>
         <ThemedText type="code" style={styles.formula}>
-          Risk = {PRESSURE_WEIGHT}({risk.pressureScore}) + {risk.temperatureScore} +{' '}
-          {risk.humidityScore} + {DURATION_WEIGHT}({risk.durationScore})
+          Risk = {term(risk.pressureScore, weights.pressure)} +{' '}
+          {term(risk.temperatureScore, weights.temperature)} +{' '}
+          {term(risk.humidityScore, weights.humidity)} + {term(risk.durationScore, weights.duration)}
         </ThemedText>
         <ThemedText type="smallBold">
-          {risk.riskScore} / {MAX_RISK_SCORE}
+          {risk.riskScore} / {risk.maxScore}
         </ThemedText>
       </View>
     </ThemedView>

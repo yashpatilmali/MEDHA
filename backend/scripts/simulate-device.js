@@ -4,11 +4,14 @@
  *
  *   npm run simulate -- --device SP-ESP32-001 --scenario cycle
  *
+ * Each scenario starts with a minute of normal readings, which the backend averages into the
+ * patient's baseline (pressure in mmHg, like the ESP32 sends).
+ *
  * Scenarios:
- *   cycle      (default) normal → sustained pressure with an alert → relief, repeating every 80 s
- *   normal     NORMAL risk
- *   sustained  ATTENTION, the immediate alert after 10 s, HIGH RISK after 30 s
- *   high       HIGH RISK straight away
+ *   cycle      (default) normal → pressure held on warming, damp skin → relief, repeating
+ *   normal     NORMAL
+ *   sustained  pressure 28 mmHg over baseline: ATTENTION, CRITICAL after 60 s
+ *   high       pressure on skin 2 °C warmer and much damper: CRITICAL straight away
  *
  * Options: --url (default http://localhost:PORT), --key (default DEVICE_API_KEY from .env),
  *          --interval in ms (default 1000)
@@ -36,23 +39,28 @@ const { values: options } = parseArgs({
 const jitter = (value, amount) => value + (Math.random() * 2 - 1) * amount;
 const round = (value) => Math.round(value * 10) / 10;
 
+/** Seconds of normal readings at the start, while the backend calibrates the baseline. */
+const CALIBRATION_SECONDS = 62;
+
+const normal = () => ({ pressure: jitter(12, 1), temperature: jitter(33, 0.1), humidity: jitter(45, 1) });
+
 const scenarios = {
-  normal: () => ({ pressure: jitter(20, 0.5), temperature: jitter(36.2, 0.05), humidity: jitter(34, 0.3) }),
-  sustained: () => ({ pressure: jitter(33, 0.3), temperature: jitter(36.8, 0.05), humidity: jitter(34, 0.3) }),
-  high: () => ({ pressure: jitter(37, 0.5), temperature: jitter(37.2, 0.05), humidity: jitter(50, 0.5) }),
+  normal,
+  sustained: () => ({ pressure: jitter(40, 1), temperature: jitter(33.2, 0.1), humidity: jitter(46, 1) }),
+  high: () => ({ pressure: jitter(40, 1), temperature: jitter(35.2, 0.1), humidity: jitter(66, 1) }),
   cycle: (seconds) => {
-    const t = seconds % 80;
-    if (t < 20) return scenarios.normal();
-    if (t < 65) {
+    const t = seconds % 140;
+    if (t < 20) return normal();
+    if (t < 110) {
       // Pressure held on one spot: skin warms up and gets damper the longer it lasts.
-      const progress = (t - 20) / 45;
+      const progress = (t - 20) / 90;
       return {
-        pressure: jitter(33.8, 0.4),
-        temperature: jitter(36.6 + progress * 0.6, 0.05),
-        humidity: jitter(35 + progress * 6, 0.3),
+        pressure: jitter(32, 1),
+        temperature: jitter(33 + progress * 2.4, 0.1),
+        humidity: jitter(45 + progress * 18, 1),
       };
     }
-    return { pressure: jitter(21, 0.5), temperature: jitter(36.7, 0.05), humidity: jitter(37, 0.3) };
+    return { pressure: jitter(12, 1), temperature: jitter(34, 0.1), humidity: jitter(50, 1) };
   },
 };
 
@@ -71,7 +79,8 @@ const interval = Number(options.interval);
 console.log(`Simulating ${options.device} (${options.scenario}) → ${endpoint}\n`);
 
 for (let tick = 0; ; tick += 1) {
-  const raw = scenario((tick * interval) / 1000);
+  const seconds = (tick * interval) / 1000;
+  const raw = seconds < CALIBRATION_SECONDS ? normal() : scenario(seconds - CALIBRATION_SECONDS);
   const reading = {
     pressure: round(raw.pressure),
     temperature: round(raw.temperature),
@@ -94,11 +103,14 @@ for (let tick = 0; ; tick += 1) {
         process.exit(1);
       }
     } else {
-      const { risk, pressureDuration } = body;
+      const { risk, pressureDuration, calibration } = body;
+      const status = risk
+        ? `${risk.riskLevel} ${risk.riskScore}/${risk.maxScore}, held ${pressureDuration} s` +
+          (risk.immediateAlert ? '   ⚠ CRITICAL ALERT' : '')
+        : `calibrating baseline (${calibration.samples} readings)`;
       console.log(
-        `${new Date().toLocaleTimeString()}  pressure ${reading.pressure}  temp ${reading.temperature} °C  ` +
-          `humidity ${reading.humidity} %  →  ${risk.riskLevel} ${risk.riskScore}/${risk.maxScore}, ` +
-          `held ${pressureDuration} s${risk.immediateAlert ? '   ⚠ IMMEDIATE ALERT' : ''}`
+        `${new Date().toLocaleTimeString()}  pressure ${reading.pressure} mmHg  ` +
+          `temp ${reading.temperature} °C  humidity ${reading.humidity} %  →  ${status}`
       );
     }
   } catch (error) {

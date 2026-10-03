@@ -25,3 +25,12 @@ services:
         sync: false
       - key: CORS_ORIGIN
         value: "*"
+      # Caretaker SMS alerts (optional; without them texts go to the logs).
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_FROM
+        sync: false
+      - key: SMS_COUNTRY_CODE
+        value: "+91"

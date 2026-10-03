@@ -12,7 +12,13 @@ export function normalizeContact(input) {
     const email = value.toLowerCase();
     return EMAIL_PATTERN.test(email) ? email : null;
   }
-  const mobile = value.replace(/[\s().-]/g, '');
+  return normalizeMobile(value);
+}
+
+/** A mobile number with spaces, dashes, dots and brackets removed, or null if it isn't one. */
+export function normalizeMobile(input) {
+  if (typeof input !== 'string') return null;
+  const mobile = input.trim().replace(/[\s().-]/g, '');
   return MOBILE_PATTERN.test(mobile) ? mobile : null;
 }
 

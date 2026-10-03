@@ -6,6 +6,12 @@ import { validate } from '../middleware/errors.js';
 import { Alert } from '../models/alert.js';
 import { DeviceState } from '../models/device-state.js';
 import { Reading } from '../models/reading.js';
+import {
+  getCalibration,
+  ingestReading,
+  readingSchema,
+  startCalibration,
+} from '../services/ingest.js';
 
 export const monitoringRouter = express.Router();
 monitoringRouter.use(requirePatient);
@@ -14,6 +20,32 @@ monitoringRouter.use(requirePatient);
 monitoringRouter.get('/latest', async (req, res) => {
   const state = await DeviceState.findOne({ deviceId: req.patient.deviceId });
   res.json({ snapshot: state?.receivedAt ? state.toSnapshot() : null });
+});
+
+/**
+ * Saves a reading the app collected for the logged-in patient's own device:
+ *
+ *   POST /api/monitoring/readings
+ *   Authorization: Bearer <token>
+ *   { "pressure": 33.4, "temperature": 36.7, "humidity": 34.2 }
+ *
+ * Scored, stored and alerted exactly like an ESP32 upload; the reply is the scored reading.
+ */
+monitoringRouter.post('/readings', async (req, res) => {
+  const reading = validate(readingSchema, req.body);
+  const snapshot = await ingestReading(req.patient.deviceId, reading);
+  res.status(201).json(snapshot);
+});
+
+/** Calibration progress and the baseline readings are scored against. */
+monitoringRouter.get('/calibration', async (req, res) => {
+  res.json({ calibration: await getCalibration(req.patient.deviceId) });
+});
+
+/** Starts a new 1-minute baseline calibration from the device's next reading. */
+monitoringRouter.post('/calibration', async (req, res) => {
+  const { deviceId, patientId } = req.patient;
+  res.status(201).json({ calibration: await startCalibration(deviceId, patientId) });
 });
 
 const historyQuery = z.object({

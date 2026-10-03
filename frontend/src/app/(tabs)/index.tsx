@@ -1,6 +1,7 @@
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
-import { PressureAlert } from '@/components/pressure-alert';
+import { CalibrationCard } from '@/components/calibration-card';
+import { CriticalAlert } from '@/components/critical-alert';
 import { RiskBreakdown } from '@/components/risk-breakdown';
 import { ScreenTitle } from '@/components/screen-title';
 import { SensorCard } from '@/components/sensor-card';
@@ -16,12 +17,13 @@ import { useLiveMonitoring, type Connection } from '@/hooks/use-live-monitoring'
 import { useNow } from '@/hooks/use-now';
 import { useTheme } from '@/hooks/use-theme';
 import type { Patient } from '@/types/patient';
-import { MAX_RISK_SCORE, type RiskLevel } from '@/types/monitoring';
+import type { RiskLevel } from '@/types/monitoring';
+import { formatSigned } from '@/utils/format';
 
 const RISK_MESSAGES: Record<RiskLevel, string> = {
   NORMAL: 'Continue monitoring',
-  ATTENTION: 'Watch the pressure zone',
-  'HIGH RISK': 'Check / reposition patient',
+  ATTENTION: 'Readings are rising above baseline: watch the pressure zone',
+  CRITICAL: 'Check / reposition the patient now',
 };
 
 const STATUS_LABELS: Record<Connection, string> = {
@@ -51,6 +53,8 @@ function Dashboard({ patient, token }: { patient: Patient; token: string }) {
   const reading = feed.snapshot?.reading ?? null;
   const risk = feed.snapshot?.risk ?? null;
   const pressureDuration = feed.snapshot?.pressureDuration ?? 0;
+  const { calibration } = feed;
+  const calibrated = calibration?.status === 'complete';
   const secondsSinceUpdate = feed.snapshot
     ? Math.max(0, Math.floor((now - Date.parse(feed.snapshot.receivedAt)) / 1000))
     : null;
@@ -58,8 +62,18 @@ function Dashboard({ patient, token }: { patient: Patient; token: string }) {
   const riskColor: Record<RiskLevel, string> = {
     NORMAL: theme.normal,
     ATTENTION: theme.attention,
-    'HIGH RISK': theme.danger,
+    CRITICAL: theme.danger,
   };
+  const scoreColors = [theme.normal, theme.attention, theme.danger];
+
+  /** A sensor's rise above baseline, colored by its score; "Calibrating" until there is a baseline. */
+  function sensorStatus(delta: number | undefined, score: number | undefined, unit: string) {
+    if (delta === undefined || score === undefined) {
+      return { status: 'Calibrating', statusColor: theme.textSecondary };
+    }
+    return { status: `${formatSigned(delta)} ${unit} vs baseline`, statusColor: scoreColors[score] };
+  }
+
   const statusColor: Record<Connection, string> = {
     connecting: theme.textSecondary,
     connected: theme.normal,
@@ -101,7 +115,11 @@ function Dashboard({ patient, token }: { patient: Patient; token: string }) {
         </View>
       </ThemedView>
 
-      {reading && risk ? (
+      {calibration && !calibrated && (
+        <CalibrationCard calibration={calibration} now={now} onRecalibrate={feed.startCalibration} />
+      )}
+
+      {reading ? (
         <>
           {feed.connection === 'disconnected' && (
             <ThemedView
@@ -116,60 +134,73 @@ function Dashboard({ patient, token }: { patient: Patient; token: string }) {
             </ThemedView>
           )}
 
-          {risk.immediateAlert && <PressureAlert reading={reading} duration={pressureDuration} />}
+          {risk?.immediateAlert && (
+            <CriticalAlert reading={reading} risk={risk} duration={pressureDuration} />
+          )}
 
-          <ThemedView
-            type="backgroundElement"
-            style={[styles.riskCard, { borderColor: riskColor[risk.riskLevel] }]}>
-            <ThemedText themeColor="textSecondary" style={styles.label}>
-              CURRENT RISK
-            </ThemedText>
-            <View style={styles.scoreRow}>
-              <ThemedText style={styles.score}>{risk.riskScore}</ThemedText>
-              <ThemedText themeColor="textSecondary" style={styles.scoreMax}>
-                / {MAX_RISK_SCORE}
+          {risk && (
+            <ThemedView
+              type="backgroundElement"
+              style={[styles.riskCard, { borderColor: riskColor[risk.riskLevel] }]}>
+              <ThemedText themeColor="textSecondary" style={styles.label}>
+                CURRENT STATUS
               </ThemedText>
-            </View>
-            <ThemedText style={[styles.riskLevel, { color: riskColor[risk.riskLevel] }]}>
-              {risk.riskLevel}
-            </ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">
-              {RISK_MESSAGES[risk.riskLevel]}
-            </ThemedText>
-          </ThemedView>
+              <ThemedText style={[styles.riskLevel, { color: riskColor[risk.riskLevel] }]}>
+                {risk.riskLevel}
+              </ThemedText>
+              <View style={styles.scoreRow}>
+                <ThemedText style={styles.score}>{risk.riskScore}</ThemedText>
+                <ThemedText themeColor="textSecondary" style={styles.scoreMax}>
+                  / {risk.maxScore}
+                </ThemedText>
+              </View>
+              <ThemedText type="small" themeColor="textSecondary" style={styles.centerText}>
+                {RISK_MESSAGES[risk.riskLevel]}
+              </ThemedText>
+            </ThemedView>
+          )}
 
           <View style={styles.grid}>
             <SensorCard
               title="PRESSURE"
               value={reading.pressure.toFixed(1)}
               unit={PRESSURE_UNIT}
-              status={risk.pressureScore >= 2 ? 'Elevated' : 'Normal'}
-              statusColor={risk.pressureScore >= 2 ? theme.danger : theme.normal}
+              {...sensorStatus(risk?.deltas.pressure, risk?.pressureScore, PRESSURE_UNIT)}
             />
             <SensorCard
               title="TEMPERATURE"
               value={reading.temperature.toFixed(1)}
               unit="deg C"
-              status={risk.temperatureScore === 2 ? 'Elevated' : 'Normal'}
-              statusColor={risk.temperatureScore === 2 ? theme.danger : theme.normal}
+              {...sensorStatus(risk?.deltas.temperature, risk?.temperatureScore, 'deg C')}
             />
             <SensorCard
               title="HUMIDITY"
               value={reading.humidity.toFixed(1)}
               unit="%RH"
-              status={risk.humidityScore === 0 ? 'Normal' : 'Abnormal'}
-              statusColor={risk.humidityScore === 0 ? theme.normal : theme.attention}
+              {...sensorStatus(risk?.deltas.humidity, risk?.humidityScore, '%RH')}
             />
             <SensorCard
               title="PRESSURE DURATION"
               value={String(pressureDuration)}
               unit="sec"
-              status={risk.durationScore >= 1 ? 'Sustained' : 'Monitoring'}
-              statusColor={risk.durationScore >= 1 ? theme.danger : theme.normal}
+              {...(risk
+                ? {
+                    status: risk.durationScore >= 1 ? 'Sustained' : 'Monitoring',
+                    statusColor: scoreColors[risk.durationScore],
+                  }
+                : { status: 'Calibrating', statusColor: theme.textSecondary })}
             />
           </View>
 
-          <RiskBreakdown risk={risk} />
+          {risk && <RiskBreakdown risk={risk} />}
+
+          {calibration && calibrated && (
+            <CalibrationCard
+              calibration={calibration}
+              now={now}
+              onRecalibrate={feed.startCalibration}
+            />
+          )}
         </>
       ) : (
         <ThemedView type="backgroundElement" style={[styles.waitingCard, { borderColor: theme.border }]}>

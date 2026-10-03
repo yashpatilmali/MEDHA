@@ -10,7 +10,7 @@ import { requirePatient, signToken } from '../middleware/auth.js';
 import { HttpError, validate } from '../middleware/errors.js';
 import { nextSequence } from '../models/counter.js';
 import { Patient, SEX_OPTIONS } from '../models/patient.js';
-import { normalizeContact } from '../services/contact.js';
+import { normalizeContact, normalizeMobile } from '../services/contact.js';
 import { sendResetCode } from '../services/mailer.js';
 
 const MIN_PASSWORD_LENGTH = 6;
@@ -59,6 +59,21 @@ const registerSchema = z.object({
   sex: z.enum(SEX_OPTIONS, { error: "Select the patient's sex." }),
   contact: contactField,
   password: passwordField,
+  caretakerName: z
+    .string({ error: "Enter the caretaker's name." })
+    .trim()
+    .min(2, "Enter the caretaker's name.")
+    .max(80, 'Use 80 characters or fewer.'),
+  caretakerPhone: z
+    .string({ error: "Enter the caretaker's mobile number." })
+    .transform((value, ctx) => {
+      const phone = normalizeMobile(value);
+      if (!phone) {
+        ctx.addIssue({ code: 'custom', message: 'Enter a valid mobile number for SMS alerts.' });
+        return z.NEVER;
+      }
+      return phone;
+    }),
 });
 
 const loginSchema = z.object({
@@ -93,6 +108,8 @@ authRouter.post('/register', authLimiter, async (req, res) => {
       age: input.age,
       sex: input.sex,
       contact: input.contact,
+      caretakerName: input.caretakerName.replace(/\s+/g, ' '),
+      caretakerPhone: input.caretakerPhone,
       passwordHash: await bcrypt.hash(input.password, 10),
     });
   } catch (error) {
