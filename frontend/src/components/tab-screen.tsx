@@ -44,7 +44,9 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.four,
   },
   container: {
-    flexGrow: 1,
+    // flex: 1 (not just flexGrow) lets the page shrink to the screen width, so long text wraps
+    // instead of stretching the page off the side of the phone.
+    flex: 1,
     maxWidth: MaxContentWidth,
     gap: Spacing.three,
   },

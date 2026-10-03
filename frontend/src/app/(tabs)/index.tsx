@@ -212,7 +212,7 @@ function Dashboard({ patient, token }: { patient: Patient; token: string }) {
               {...sensorStatus(risk?.percentChanges.humidity, risk?.triggers.humidity, '%')}
             />
             <SensorCard
-              title="TIME OVER 32 mmHg"
+              title="HIGH-PRESSURE TIME"
               value={String(pressureDuration)}
               unit="sec"
               {...(risk

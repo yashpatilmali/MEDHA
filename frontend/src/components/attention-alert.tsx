@@ -79,7 +79,8 @@ export function AttentionAlert({ reading, risk, duration }: AttentionAlertProps)
             </ThemedText>
             <ThemedText
               type={active ? 'smallBold' : 'small'}
-              themeColor={active ? 'text' : 'textSecondary'}>
+              themeColor={active ? 'text' : 'textSecondary'}
+              style={styles.detailValue}>
               {value}
             </ThemedText>
           </View>
@@ -118,5 +119,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     gap: Spacing.three,
+  },
+  detailValue: {
+    flexShrink: 1,
+    textAlign: 'right',
   },
 });
