@@ -1,0 +1,27 @@
+# Render Blueprint for the backend API.
+# Render → New → Blueprint → pick this repo. Secrets marked `sync: false` are asked for on first deploy.
+services:
+  - type: web
+    name: medha-backend
+    runtime: node
+    region: singapore
+    plan: free
+    rootDir: backend
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # MongoDB Atlas connection string. Required in production.
+      - key: MONGODB_URI
+        sync: false
+      # Generated once by Render and kept across deploys.
+      - key: JWT_SECRET
+        generateValue: true
+      # Must match the key flashed into the ESP32 firmware.
+      - key: DEVICE_API_KEY
+        sync: false
+      - key: CORS_ORIGIN
+        value: "*"
