@@ -327,10 +327,26 @@ describe('activation, initial scan and wear time', () => {
     assert.equal((await control('/calibration')).status, 409);
   });
 
+  test('activating only accepts the listed positions', async () => {
+    const response = await api('/api/monitoring/device/activate', {
+      method: 'POST',
+      body: { position: 'standing' },
+      token: priyaToken,
+    });
+    assert.equal(response.status, 400);
+    assert.ok(response.body.fields.position);
+  });
+
   test('activate in the app, then the patch switches on and confirms', async () => {
-    const activated = await control('/device/activate');
+    const activated = await api('/api/monitoring/device/activate', {
+      method: 'POST',
+      body: { position: 'right_side' },
+      token: priyaToken,
+    });
     assert.equal(activated.status, 200);
     assert.equal(activated.body.device.active, true);
+    assert.equal(activated.body.device.position, 'right_side');
+    assert.equal(activated.body.device.site, 'Right hip');
     assert.equal(activated.body.device.deviceActive, false);
 
     const told = await heartbeat({ active: false });

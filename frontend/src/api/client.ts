@@ -2,6 +2,7 @@ import { AxiosError, create } from 'axios';
 
 import { API_URL } from '@/api/config';
 import type { AlertEvent, HistoryPoint, PatchStatus, Snapshot } from '@/types/monitoring';
+import type { PatchPosition } from '@/constants/positions';
 import type { NewPatient, Patient } from '@/types/patient';
 import type { SensorData } from '@/types/sensor';
 
@@ -83,7 +84,8 @@ export const api = {
   sendReading: (reading: SensorData) => call<Snapshot>(http.post('/monitoring/readings', reading)),
   device: () => call<PatchStatus>(http.get('/monitoring/device')),
   /** Switches the patch's sensors on; the ESP32 confirms within a few seconds. */
-  activate: () => call<PatchStatus>(http.post('/monitoring/device/activate')),
+  activate: (position: PatchPosition) =>
+    call<PatchStatus>(http.post('/monitoring/device/activate', { position })),
   /** Switches the sensors off and ends the wear session. */
   deactivate: () => call<PatchStatus>(http.post('/monitoring/device/deactivate')),
   /** Scans the initial readings: the device's next minute of readings becomes the baseline. */

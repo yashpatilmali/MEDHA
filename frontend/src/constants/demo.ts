@@ -6,6 +6,7 @@ import type {
   RiskLevel,
   Snapshot,
 } from '@/types/monitoring';
+import { PATCH_POSITIONS, type PatchPosition } from '@/constants/positions';
 import type { Patient } from '@/types/patient';
 
 export const DEMO_MODE = process.env.EXPO_PUBLIC_DEMO_MODE !== 'false';
@@ -46,6 +47,7 @@ const DEMO_BASELINE = { pressure: 12, temperature: 33, humidity: 45 };
 export type DemoSession = {
   /** Null when the sensors are off. */
   activatedAt: number | null;
+  position: PatchPosition | null;
   scanStartedAt: number | null;
   wearStartedAt: number | null;
   lastWear: { startedAt: number; endedAt: number } | null;
@@ -53,6 +55,7 @@ export type DemoSession = {
 
 export const DEMO_SESSION_OFF: DemoSession = {
   activatedAt: null,
+  position: null,
   scanStartedAt: null,
   wearStartedAt: null,
   lastWear: null,
@@ -91,6 +94,8 @@ export function demoStatus(now: number, session: DemoSession): PatchStatus {
     device: {
       active: activatedAt !== null,
       activatedAt: iso(activatedAt),
+      position: session.position,
+      site: PATCH_POSITIONS.find((option) => option.value === session.position)?.site ?? null,
       deviceActive: confirmed,
       sensorsOk: confirmed ? true : null,
       lastSeenAt: confirmed ? iso(now) : null,

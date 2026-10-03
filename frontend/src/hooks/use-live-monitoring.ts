@@ -11,6 +11,7 @@ import {
   demoStatus,
   type DemoSession,
 } from '@/constants/demo';
+import type { PatchPosition } from '@/constants/positions';
 import type { HistoryPoint, PatchStatus, Snapshot } from '@/types/monitoring';
 
 export type Connection = 'connecting' | 'connected' | 'disconnected';
@@ -137,16 +138,18 @@ export function useLiveMonitoring(token: string) {
     setSnapshot((current) => withStatus(current, next));
   }
 
-  /** Switches the patch's sensors on. */
-  const activate = () =>
-    command(api.activate, (session, now) =>
-      session.activatedAt === null ? { ...session, activatedAt: now } : session
+  /** Switches the patch's sensors on; `position` says where it was placed. */
+  const activate = (position: PatchPosition) =>
+    command(
+      () => api.activate(position),
+      (session, now) => ({ ...session, activatedAt: session.activatedAt ?? now, position })
     );
 
   /** Switches the sensors off and ends the wear session. */
   const deactivate = () =>
     command(api.deactivate, (session, now) => ({
       ...DEMO_SESSION_OFF,
+      position: session.position,
       lastWear:
         session.wearStartedAt === null
           ? session.lastWear

@@ -1,3 +1,4 @@
+import type { PatchPosition } from '@/constants/positions';
 import type { SensorData } from '@/types/sensor';
 
 export type RiskLevel = 'NORMAL' | 'ATTENTION' | 'CRITICAL';
@@ -48,6 +49,9 @@ export interface DeviceStatus {
   /** Activated in the app. */
   active: boolean;
   activatedAt: string | null;
+  /** The patient's usual position chosen when activating, and the patch site it calls for. */
+  position?: PatchPosition | null;
+  site?: string | null;
   /** The ESP32 reported its sensors on. */
   deviceActive: boolean;
   /** The sensors gave a valid reading; null when unknown. */

@@ -9,6 +9,18 @@ const sensorReading = {
   humidity: Number,
 };
 
+/**
+ * The patient's usual position, chosen when activating, and the patch site it calls for (from the
+ * clinical guidance: the area that position puts the most pressure on).
+ */
+export const PATCH_SITES = {
+  sitting: 'Bottom (seat area)',
+  back: 'Lower back / bottom',
+  right_side: 'Right hip',
+  left_side: 'Left hip',
+};
+export const POSITIONS = Object.keys(PATCH_SITES);
+
 /** A calibration that starts with the device's next reading. */
 export function newCalibration() {
   return { startedAt: null, samples: 0, sum: { pressure: 0, temperature: 0, humidity: 0 } };
@@ -22,6 +34,8 @@ const deviceStateSchema = new mongoose.Schema(
     /** Set from the app: whether the patch should have its sensors on and send readings. */
     active: { type: Boolean, default: false },
     activatedAt: Date,
+    /** One of POSITIONS, chosen in the app when activating. */
+    position: { type: String, enum: [...POSITIONS, null], default: null },
     /** What the ESP32 last reported: its sensors are on, and they gave a valid reading. */
     deviceActive: Boolean,
     sensorsOk: Boolean,
@@ -97,6 +111,8 @@ deviceStateSchema.methods.toDevice = function toDevice() {
   return {
     active: this.active,
     activatedAt: this.activatedAt?.toISOString() ?? null,
+    position: this.position ?? null,
+    site: this.position ? PATCH_SITES[this.position] : null,
     deviceActive: Boolean(this.deviceActive),
     sensorsOk: this.sensorsOk ?? null,
     lastSeenAt: this.lastSeenAt?.toISOString() ?? null,

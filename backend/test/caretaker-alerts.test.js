@@ -64,6 +64,17 @@ describe('the message', () => {
     );
     assert.match(message, /^MEDHA ATTENTION: .*pressure \+12 mmHg, temp \+1C.*Please check the patch site\.$/);
   });
+
+  test('names the patch site from the position chosen at activation', () => {
+    const message = alertMessage(
+      patient,
+      { riskLevel: 'CRITICAL', deltas: { pressure: 28, temperature: 2.1, humidity: -1.5 } },
+      60,
+      'right_side'
+    );
+    assert.match(message, /now\. Right hip: pressure \+28 mmHg for 60s/);
+    assert.ok(message.length <= 160, `${message.length} characters`);
+  });
 });
 
 describe('phone numbers', () => {

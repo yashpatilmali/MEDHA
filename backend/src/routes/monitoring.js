@@ -5,6 +5,7 @@ import { requirePatient } from '../middleware/auth.js';
 import { HttpError, validate } from '../middleware/errors.js';
 import { Alert } from '../models/alert.js';
 import { DeviceState } from '../models/device-state.js';
+import { POSITIONS } from '../models/device-state.js';
 import { Reading } from '../models/reading.js';
 import {
   activate,
@@ -47,10 +48,16 @@ monitoringRouter.get('/device', async (req, res) => {
   res.json(await getDeviceStatus(req.patient.deviceId));
 });
 
+const activateSchema = z.object({
+  /** The patient's usual position, which decides where the patch goes. */
+  position: z.enum(POSITIONS, { error: "Choose the patient's current position." }).optional(),
+});
+
 /** Switches the patch's sensors on; it confirms within a few seconds. */
 monitoringRouter.post('/device/activate', async (req, res) => {
+  const { position } = validate(activateSchema, req.body);
   const { deviceId, patientId } = req.patient;
-  res.json(await activate(deviceId, patientId));
+  res.json(await activate(deviceId, patientId, position));
 });
 
 /** Switches the patch's sensors off and ends the wear session. */

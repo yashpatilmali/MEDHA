@@ -161,7 +161,7 @@ export function ingestReading(deviceId, reading, receivedAt = new Date()) {
     await state.save();
 
     if (textCaretaker) {
-      notifyCaretaker(patient, risk, pressureDuration);
+      notifyCaretaker(patient, risk, pressureDuration, state.position);
     }
     const snapshot = state.toSnapshot();
     publish(patientId, 'reading', snapshot);

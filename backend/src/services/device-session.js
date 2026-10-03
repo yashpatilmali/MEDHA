@@ -35,13 +35,19 @@ export async function getDeviceStatus(deviceId) {
   return statusOf((await DeviceState.findOne({ deviceId })) ?? new DeviceState({ deviceId }));
 }
 
-/** Asks the patch to switch its sensors on. It confirms on its next check-in. */
-export function activate(deviceId, patientId, now = new Date()) {
+/**
+ * Asks the patch to switch its sensors on; it confirms on its next check-in. `position` is the
+ * patient's usual position, which says where the patch was placed.
+ */
+export function activate(deviceId, patientId, position = null, now = new Date()) {
   return serialize(deviceId, async () => {
     const state = await loadState(deviceId, patientId);
     if (!state.active) {
       state.active = true;
       state.activatedAt = now;
+    }
+    if (position) {
+      state.position = position;
     }
     return saveAndPublish(state);
   });

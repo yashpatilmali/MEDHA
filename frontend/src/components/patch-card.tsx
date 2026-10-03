@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 import { Button } from '@/components/button';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { PATCH_POSITIONS, type PatchPosition } from '@/constants/positions';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import type { PatchStatus } from '@/types/monitoring';
@@ -13,7 +14,7 @@ import { activationOverdue, patchPhase, type PatchPhase } from '@/utils/patch';
 type PatchCardProps = {
   status: PatchStatus;
   now: number;
-  onActivate: () => Promise<void>;
+  onActivate: (position: PatchPosition) => Promise<void>;
   onScan: () => Promise<void>;
   onDeactivate: () => Promise<void>;
 };
@@ -28,13 +29,16 @@ const PHASE_LABELS: Record<PatchPhase, string> = {
 };
 
 /**
- * Controls the sensor patch: activate its sensors, scan the initial readings, deactivate. Shows
- * whether the patch has confirmed it is on, and how long it has been on the body.
+ * Controls the sensor patch: ask the patient's position and say where to place the patch, activate
+ * its sensors, scan the initial readings, deactivate. Shows whether the patch has confirmed it is
+ * on, where it is, and how long it has been on the body.
  */
 export function PatchCard({ status, now, onActivate, onScan, onDeactivate }: PatchCardProps) {
   const theme = useTheme();
   const [busy, setBusy] = useState<'activate' | 'scan' | 'deactivate' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [position, setPosition] = useState<PatchPosition | null>(null);
+  const chosen = PATCH_POSITIONS.find((option) => option.value === position);
 
   const { device, calibration } = status;
   const phase = patchPhase(device, calibration, now);
@@ -66,7 +70,7 @@ export function PatchCard({ status, now, onActivate, onScan, onDeactivate }: Pat
   let message: string;
   switch (phase) {
     case 'off':
-      message = 'Place the patch on the patient, then activate the sensors.';
+      message = "Answer one question to find where the patch goes, then activate the sensors.";
       break;
     case 'activating':
       message = activationOverdue(device, now)
@@ -89,6 +93,9 @@ export function PatchCard({ status, now, onActivate, onScan, onDeactivate }: Pat
   }
 
   const rows: { label: string; value: string; color?: string }[] = [];
+  if (device.active && device.site) {
+    rows.push({ label: 'Patch site', value: device.site });
+  }
   if (device.active) {
     rows.push({
       label: 'Patch',
@@ -158,11 +165,57 @@ export function PatchCard({ status, now, onActivate, onScan, onDeactivate }: Pat
       )}
 
       {phase === 'off' && (
-        <Button
-          title="Activate sensors"
-          loading={busy === 'activate'}
-          onPress={() => run('activate', onActivate)}
-        />
+        <View style={styles.question}>
+          <ThemedText type="smallBold">What best describes the patient&apos;s current position?</ThemedText>
+          <View role="radiogroup" aria-label="Patient's current position" style={styles.options}>
+            {PATCH_POSITIONS.map((option) => {
+              const selected = option.value === position;
+              return (
+                <Pressable
+                  key={option.value}
+                  role="radio"
+                  aria-checked={selected}
+                  onPress={() => setPosition(option.value)}
+                  style={({ pressed }) => [
+                    styles.option,
+                    {
+                      borderColor: selected ? theme.tint : theme.backgroundSelected,
+                      backgroundColor: selected ? theme.primarySoft : theme.backgroundElement,
+                    },
+                    pressed && styles.pressed,
+                  ]}>
+                  <View style={[styles.radio, { borderColor: selected ? theme.tint : theme.textSecondary }]}>
+                    {selected && <View style={[styles.radioDot, { backgroundColor: theme.tint }]} />}
+                  </View>
+                  <ThemedText type={selected ? 'smallBold' : 'small'} style={styles.optionLabel}>
+                    {option.label}
+                  </ThemedText>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          {chosen && (
+            <View style={[styles.placement, { borderLeftColor: theme.tint, backgroundColor: theme.primarySoft }]}>
+              <ThemedText type="overline" style={{ color: theme.tint }}>
+                Place the patch here
+              </ThemedText>
+              <ThemedText type="heading">{chosen.site}</ThemedText>
+              <ThemedText type="small">{chosen.instruction}</ThemedText>
+              <ThemedText type="caption" themeColor="textSecondary">
+                Press firmly so the whole sensor touches the skin, then activate.
+              </ThemedText>
+            </View>
+          )}
+
+          {chosen && (
+            <Button
+              title="Patch placed: activate sensors"
+              loading={busy === 'activate'}
+              onPress={() => run('activate', () => onActivate(chosen.value))}
+            />
+          )}
+        </View>
       )}
       {phase === 'ready' && (
         <Button
@@ -244,5 +297,46 @@ const styles = StyleSheet.create({
   value: {
     flexShrink: 1,
     textAlign: 'right',
+  },
+  question: {
+    gap: 12,
+  },
+  options: {
+    gap: Spacing.two,
+  },
+  option: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    minHeight: 48,
+    borderWidth: 1.5,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  pressed: {
+    opacity: 0.7,
+  },
+  radio: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radioDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  optionLabel: {
+    flexShrink: 1,
+  },
+  placement: {
+    borderLeftWidth: 4,
+    borderRadius: 12,
+    padding: Spacing.three,
+    gap: Spacing.one,
   },
 });
