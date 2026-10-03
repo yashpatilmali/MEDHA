@@ -1,7 +1,7 @@
 import { AxiosError, create } from 'axios';
 
 import { API_URL } from '@/api/config';
-import type { AlertEvent, Calibration, HistoryPoint, Snapshot } from '@/types/monitoring';
+import type { AlertEvent, HistoryPoint, PatchStatus, Snapshot } from '@/types/monitoring';
 import type { NewPatient, Patient } from '@/types/patient';
 import type { SensorData } from '@/types/sensor';
 
@@ -81,10 +81,13 @@ export const api = {
 
   /** Saves a reading for the logged-in patient's device and returns it scored. */
   sendReading: (reading: SensorData) => call<Snapshot>(http.post('/monitoring/readings', reading)),
-  calibration: () => call<{ calibration: Calibration }>(http.get('/monitoring/calibration')),
-  /** Discards the baseline and averages the device's next minute of readings into a new one. */
-  startCalibration: () =>
-    call<{ calibration: Calibration }>(http.post('/monitoring/calibration')),
+  device: () => call<PatchStatus>(http.get('/monitoring/device')),
+  /** Switches the patch's sensors on; the ESP32 confirms within a few seconds. */
+  activate: () => call<PatchStatus>(http.post('/monitoring/device/activate')),
+  /** Switches the sensors off and ends the wear session. */
+  deactivate: () => call<PatchStatus>(http.post('/monitoring/device/deactivate')),
+  /** Scans the initial readings: the device's next minute of readings becomes the baseline. */
+  startCalibration: () => call<PatchStatus>(http.post('/monitoring/calibration')),
   latest: () => call<{ snapshot: Snapshot | null }>(http.get('/monitoring/latest')),
   history: (minutes: number) =>
     call<{ readings: HistoryPoint[] }>(http.get('/monitoring/history', { params: { minutes } })),

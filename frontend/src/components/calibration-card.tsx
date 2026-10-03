@@ -1,7 +1,5 @@
-import { useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
-import { Button } from '@/components/button';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { PRESSURE_UNIT } from '@/constants/monitor';
@@ -13,31 +11,16 @@ import { formatDateTime } from '@/utils/format';
 type CalibrationCardProps = {
   calibration: Calibration;
   now: number;
-  onRecalibrate: () => Promise<void>;
 };
 
 /**
- * The 1-minute baseline calibration: progress while it runs, then the baseline (initial reading)
- * every later reading is compared with.
+ * The 1-minute initial scan: progress while it runs, then the baseline (initial readings) every
+ * later reading is compared with. Nothing before the scan is started.
  */
-export function CalibrationCard({ calibration, now, onRecalibrate }: CalibrationCardProps) {
+export function CalibrationCard({ calibration, now }: CalibrationCardProps) {
   const theme = useTheme();
-  const [starting, setStarting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function handleRecalibrate() {
-    setStarting(true);
-    setError(null);
-    try {
-      await onRecalibrate();
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : 'Could not start calibration.');
-    } finally {
-      setStarting(false);
-    }
-  }
-
   const { baseline, status } = calibration;
+  if (status === 'none') return null;
 
   if (status === 'complete' && baseline) {
     const values = [
@@ -48,7 +31,7 @@ export function CalibrationCard({ calibration, now, onRecalibrate }: Calibration
     return (
       <ThemedView type="backgroundElement" style={[styles.card, { borderColor: theme.border }]}>
         <ThemedText type="overline" themeColor="textSecondary">
-          Baseline (initial reading)
+          Baseline (initial readings)
         </ThemedText>
         <View style={styles.values}>
           {values.map(({ label, value, unit }) => (
@@ -63,20 +46,9 @@ export function CalibrationCard({ calibration, now, onRecalibrate }: Calibration
           ))}
         </View>
         <ThemedText type="caption" themeColor="textSecondary">
-          Average of {baseline.samples} readings, calibrated {formatDateTime(baseline.calibratedAt)}.
-          Recalibrate whenever the patch is re-applied.
+          Average of {baseline.samples} readings, scanned {formatDateTime(baseline.calibratedAt)}.
+          Rescan whenever the patch is re-applied.
         </ThemedText>
-        <Button
-          title="Recalibrate baseline"
-          variant="secondary"
-          loading={starting}
-          onPress={handleRecalibrate}
-        />
-        {error && (
-          <ThemedText type="small" style={{ color: theme.danger }}>
-            {error}
-          </ThemedText>
-        )}
       </ThemedView>
     );
   }
@@ -92,11 +64,11 @@ export function CalibrationCard({ calibration, now, onRecalibrate }: Calibration
       style={[styles.card, styles.calibrating, { borderColor: theme.tint }]}>
       <View style={styles.titleRow}>
         <ActivityIndicator color={theme.tint} />
-        <ThemedText type="heading">Calibrating baseline</ThemedText>
+        <ThemedText type="heading">Scanning initial readings</ThemedText>
       </View>
       <ThemedText type="small" themeColor="textSecondary">
         {status === 'waiting'
-          ? 'The 1-minute calibration starts with the next reading from the patch.'
+          ? 'The 1-minute scan starts with the next reading from the patch.'
           : 'Keep the patient still while the patch measures their normal pressure, temperature and humidity.'}
       </ThemedText>
 

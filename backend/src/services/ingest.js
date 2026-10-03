@@ -2,11 +2,12 @@ import { z } from 'zod';
 
 import { HttpError } from '../middleware/errors.js';
 import { Alert } from '../models/alert.js';
-import { CALIBRATION_SECONDS, DeviceState } from '../models/device-state.js';
+import { CALIBRATION_SECONDS, DeviceState, newCalibration } from '../models/device-state.js';
 import { Patient } from '../models/patient.js';
 import { Reading } from '../models/reading.js';
 import { publish } from '../realtime.js';
 import { notifyCaretaker, shouldNotify } from './caretaker-alerts.js';
+import { serialize } from './device-queue.js';
 import { calculateRisk, elevatedPressure } from './risk-engine.js';
 
 /** One reading: FSR402 pressure plus SHTC3 temperature and humidity. */
@@ -25,32 +26,15 @@ const MAX_GAP_MS = 60 * 1000;
 /** How often a reading is copied into history (level changes and alerts are always copied). */
 const HISTORY_INTERVAL_MS = 10 * 1000;
 
-const queues = new Map();
-
-/** Runs tasks for the same device one at a time, so concurrent uploads can't corrupt its state. */
-function serialize(deviceId, task) {
-  const previous = queues.get(deviceId) ?? Promise.resolve();
-  const next = previous.then(task, task);
-  queues.set(
-    deviceId,
-    next.catch(() => {})
-  );
-  return next;
-}
 
 /** Calibration needs at least this many readings, or it starts again. */
 const MIN_CALIBRATION_SAMPLES = 5;
 
-const ZERO_SUM = { pressure: 0, temperature: 0, humidity: 0 };
-
 /**
- * Feeds a reading to the calibration in progress. A device's first ever reading starts one. After
- * CALIBRATION_SECONDS the average becomes the baseline; too few readings start it again.
+ * Feeds a reading to the calibration (initial scan) in progress, if one was started from the app.
+ * After CALIBRATION_SECONDS the average becomes the baseline; too few readings start it again.
  */
 function calibrate(state, reading, receivedAt) {
-  if (!state.baseline && !state.calibration) {
-    state.calibration = { startedAt: null, samples: 0, sum: ZERO_SUM };
-  }
   if (!state.calibration) return;
 
   let { startedAt, samples, sum } = state.calibration;
@@ -70,9 +54,8 @@ function calibrate(state, reading, receivedAt) {
     startedAt = null;
   }
   if (!startedAt) {
+    ({ samples, sum } = newCalibration());
     startedAt = receivedAt;
-    samples = 0;
-    sum = ZERO_SUM;
   }
   state.calibration = {
     startedAt,
@@ -89,6 +72,8 @@ function calibrate(state, reading, receivedAt) {
  * Processes one reading from an ESP32: calibrates the baseline or scores the reading against it,
  * works out how long pressure has stayed elevated, keeps history and alerts under the patient's
  * ID, and pushes the result to their app.
+ *
+ * Returns null, without keeping the reading, when the sensors haven't been activated in the app.
  */
 export function ingestReading(deviceId, reading, receivedAt = new Date()) {
   return serialize(deviceId, async () => {
@@ -100,6 +85,13 @@ export function ingestReading(deviceId, reading, receivedAt = new Date()) {
 
     const state =
       (await DeviceState.findOne({ deviceId })) ?? new DeviceState({ deviceId, patientId });
+    // Only a working, switched-on patch sends readings.
+    Object.assign(state, { deviceActive: true, sensorsOk: true, lastSeenAt: receivedAt });
+    if (!state.active) {
+      await state.save();
+      return null;
+    }
+
     const continuous = state.receivedAt != null && receivedAt - state.receivedAt <= MAX_GAP_MS;
 
     calibrate(state, reading, receivedAt);
@@ -178,34 +170,4 @@ export function ingestReading(deviceId, reading, receivedAt = new Date()) {
     }
     return snapshot;
   });
-}
-
-/**
- * Discards the baseline and calibrates again from the device's next reading, e.g. after the patch
- * is re-applied. Readings are not scored until the new baseline is ready.
- */
-export function startCalibration(deviceId, patientId) {
-  return serialize(deviceId, async () => {
-    const state =
-      (await DeviceState.findOne({ deviceId })) ?? new DeviceState({ deviceId, patientId });
-    Object.assign(state, {
-      baseline: null,
-      calibration: { startedAt: null, samples: 0, sum: ZERO_SUM },
-      risk: null,
-      highPressureSince: null,
-      pressureDuration: 0,
-      alerting: false,
-    });
-    await state.save();
-
-    const calibration = state.toCalibration();
-    publish(patientId, 'calibration', calibration);
-    return calibration;
-  });
-}
-
-/** Calibration progress and baseline for a device, including one that has never sent a reading. */
-export async function getCalibration(deviceId) {
-  const state = await DeviceState.findOne({ deviceId });
-  return (state ?? new DeviceState({ deviceId })).toCalibration();
 }

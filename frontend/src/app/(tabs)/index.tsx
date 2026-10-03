@@ -2,6 +2,7 @@ import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { CalibrationCard } from '@/components/calibration-card';
 import { CriticalAlert } from '@/components/critical-alert';
+import { PatchCard } from '@/components/patch-card';
 import { RiskBreakdown } from '@/components/risk-breakdown';
 import { ScreenTitle } from '@/components/screen-title';
 import { SensorCard } from '@/components/sensor-card';
@@ -19,6 +20,7 @@ import { useTheme } from '@/hooks/use-theme';
 import type { Patient } from '@/types/patient';
 import type { RiskLevel } from '@/types/monitoring';
 import { formatSigned } from '@/utils/format';
+import { patchPhase } from '@/utils/patch';
 
 const RISK_MESSAGES: Record<RiskLevel, string> = {
   NORMAL: 'Continue monitoring',
@@ -53,8 +55,12 @@ function Dashboard({ patient, token }: { patient: Patient; token: string }) {
   const reading = feed.snapshot?.reading ?? null;
   const risk = feed.snapshot?.risk ?? null;
   const pressureDuration = feed.snapshot?.pressureDuration ?? 0;
-  const { calibration } = feed;
-  const calibrated = calibration?.status === 'complete';
+  const { status } = feed;
+  const phase = status ? patchPhase(status.device, status.calibration, now) : null;
+  // Readings only mean something once the sensors have confirmed they are on.
+  const showReadings =
+    reading !== null &&
+    (phase === 'ready' || phase === 'scanning' || phase === 'monitoring' || phase === 'offline');
   const secondsSinceUpdate = feed.snapshot
     ? Math.max(0, Math.floor((now - Date.parse(feed.snapshot.receivedAt)) / 1000))
     : null;
@@ -66,11 +72,14 @@ function Dashboard({ patient, token }: { patient: Patient; token: string }) {
   };
   const scoreColors = [theme.normal, theme.attention, theme.danger];
 
-  /** A sensor's rise above baseline, colored by its score; "Calibrating" until there is a baseline. */
+  const unscored = {
+    status: phase === 'scanning' ? 'Scanning...' : 'Not scanned yet',
+    statusColor: theme.textSecondary,
+  };
+
+  /** A sensor's rise above baseline, colored by its score; unscored until the initial scan. */
   function sensorStatus(delta: number | undefined, score: number | undefined, unit: string) {
-    if (delta === undefined || score === undefined) {
-      return { status: 'Calibrating', statusColor: theme.textSecondary };
-    }
+    if (delta === undefined || score === undefined) return unscored;
     return { status: `${formatSigned(delta)} ${unit} vs baseline`, statusColor: scoreColors[score] };
   }
 
@@ -115,11 +124,31 @@ function Dashboard({ patient, token }: { patient: Patient; token: string }) {
         </View>
       </ThemedView>
 
-      {calibration && !calibrated && (
-        <CalibrationCard calibration={calibration} now={now} onRecalibrate={feed.startCalibration} />
+      {status ? (
+        <PatchCard
+          status={status}
+          now={now}
+          onActivate={feed.activate}
+          onScan={feed.scan}
+          onDeactivate={feed.deactivate}
+        />
+      ) : (
+        <ThemedView type="backgroundElement" style={[styles.waitingCard, { borderColor: theme.border }]}>
+          <ActivityIndicator color={theme.textSecondary} />
+          <ThemedText type="smallBold">
+            {feed.connection === 'disconnected'
+              ? "Can't reach the monitoring server"
+              : 'Connecting to monitoring...'}
+          </ThemedText>
+          <ThemedText type="code" themeColor="textSecondary">
+            {patient.deviceId}
+          </ThemedText>
+        </ThemedView>
       )}
 
-      {reading ? (
+      {status && phase === 'scanning' && <CalibrationCard calibration={status.calibration} now={now} />}
+
+      {showReadings && reading && (
         <>
           {feed.connection === 'disconnected' && (
             <ThemedView
@@ -188,38 +217,22 @@ function Dashboard({ patient, token }: { patient: Patient; token: string }) {
                     status: risk.durationScore >= 1 ? 'Sustained' : 'Monitoring',
                     statusColor: scoreColors[risk.durationScore],
                   }
-                : { status: 'Calibrating', statusColor: theme.textSecondary })}
+                : unscored)}
             />
           </View>
 
           {risk && <RiskBreakdown risk={risk} />}
 
-          {calibration && calibrated && (
-            <CalibrationCard
-              calibration={calibration}
-              now={now}
-              onRecalibrate={feed.startCalibration}
-            />
+          {status && phase === 'monitoring' && (
+            <CalibrationCard calibration={status.calibration} now={now} />
           )}
         </>
-      ) : (
-        <ThemedView type="backgroundElement" style={[styles.waitingCard, { borderColor: theme.border }]}>
-          <ActivityIndicator color={theme.textSecondary} />
-          <ThemedText type="smallBold">
-            {feed.connection === 'disconnected'
-              ? "Can't reach the monitoring server"
-              : 'Connecting to monitoring...'}
-          </ThemedText>
-          <ThemedText type="code" themeColor="textSecondary">
-            {patient.deviceId}
-          </ThemedText>
-        </ThemedView>
       )}
 
       <View style={styles.footer}>
         <ThemedText type="small" themeColor="textSecondary">
           Last update:{' '}
-          {secondsSinceUpdate === null ? 'waiting for first reading' : formatAgo(secondsSinceUpdate)}
+          {secondsSinceUpdate === null ? 'no readings yet' : formatAgo(secondsSinceUpdate)}
         </ThemedText>
         <ThemedText type="small" themeColor="textSecondary">
           {feed.connection === 'connected'

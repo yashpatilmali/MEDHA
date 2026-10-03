@@ -28,10 +28,10 @@ export interface Baseline extends SensorData {
 }
 
 /**
- * `waiting`: the next reading from the device starts the minute; `running`: averaging readings;
- * `complete`: readings are scored against `baseline`.
+ * The initial scan. `none`: not scanned yet; `waiting`: the next reading from the device starts
+ * the minute; `running`: averaging readings; `complete`: readings are scored against `baseline`.
  */
-export type CalibrationStatus = 'waiting' | 'running' | 'complete';
+export type CalibrationStatus = 'none' | 'waiting' | 'running' | 'complete';
 
 export interface Calibration {
   status: CalibrationStatus;
@@ -43,6 +43,29 @@ export interface Calibration {
   baseline: Baseline | null;
 }
 
+/** The sensor patch, as set from the app and as last reported by the ESP32. */
+export interface DeviceStatus {
+  /** Activated in the app. */
+  active: boolean;
+  activatedAt: string | null;
+  /** The ESP32 reported its sensors on. */
+  deviceActive: boolean;
+  /** The sensors gave a valid reading; null when unknown. */
+  sensorsOk: boolean | null;
+  /** When the ESP32 last checked in. */
+  lastSeenAt: string | null;
+  /** When the patch went on the body (its initial scan); null when not worn. */
+  wearStartedAt: string | null;
+  /** The previous wear session. */
+  lastWear: { startedAt: string; endedAt: string } | null;
+}
+
+/** The patch and its initial scan, sent whenever either changes. */
+export interface PatchStatus {
+  device: DeviceStatus;
+  calibration: Calibration;
+}
+
 /** The latest reading from the patient's ESP32, as scored by the backend. */
 export interface Snapshot {
   deviceId: string;
@@ -51,9 +74,10 @@ export interface Snapshot {
   receivedAt: string;
   /** Seconds pressure has stayed elevated above the baseline. */
   pressureDuration: number;
-  /** Null while the baseline is being calibrated. */
+  /** Null until the initial scan has set the baseline. */
   risk: Risk | null;
   calibration: Calibration;
+  device: DeviceStatus;
 }
 
 export interface AlertEvent extends SensorData {

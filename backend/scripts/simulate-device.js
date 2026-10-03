@@ -1,11 +1,10 @@
 /**
- * Pretends to be a patient's ESP32: posts a reading to the backend every second, so the app can be
- * tried without hardware.
+ * Pretends to be a patient's ESP32, so the app can be tried without hardware. Like the real patch,
+ * it checks in until "Activate sensors" is pressed in the app, then posts a reading every second
+ * (pressure in mmHg). Readings stay normal until "Scan initial readings" has finished the baseline,
+ * then follow the scenario. "Deactivate" in the app switches it back to checking in.
  *
  *   npm run simulate -- --device SP-ESP32-001 --scenario cycle
- *
- * Each scenario starts with a minute of normal readings, which the backend averages into the
- * patient's baseline (pressure in mmHg, like the ESP32 sends).
  *
  * Scenarios:
  *   cycle      (default) normal → pressure held on warming, damp skin → relief, repeating
@@ -39,9 +38,6 @@ const { values: options } = parseArgs({
 const jitter = (value, amount) => value + (Math.random() * 2 - 1) * amount;
 const round = (value) => Math.round(value * 10) / 10;
 
-/** Seconds of normal readings at the start, while the backend calibrates the baseline. */
-const CALIBRATION_SECONDS = 62;
-
 const normal = () => ({ pressure: jitter(12, 1), temperature: jitter(33, 0.1), humidity: jitter(45, 1) });
 
 const scenarios = {
@@ -74,44 +70,77 @@ if (!options.key) {
   process.exit(1);
 }
 
-const endpoint = `${options.url}/api/devices/${encodeURIComponent(options.device)}/readings`;
+const deviceUrl = `${options.url}/api/devices/${encodeURIComponent(options.device)}`;
 const interval = Number(options.interval);
-console.log(`Simulating ${options.device} (${options.scenario}) → ${endpoint}\n`);
+console.log(`Simulating ${options.device} (${options.scenario}) → ${deviceUrl}`);
+console.log('Waiting for "Activate sensors" in the app...\n');
 
-for (let tick = 0; ; tick += 1) {
-  const seconds = (tick * interval) / 1000;
-  const raw = seconds < CALIBRATION_SECONDS ? normal() : scenario(seconds - CALIBRATION_SECONDS);
-  const reading = {
-    pressure: round(raw.pressure),
-    temperature: round(raw.temperature),
-    humidity: round(raw.humidity),
-  };
+async function post(path, body) {
+  const response = await fetch(deviceUrl + path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Device-Key': options.key },
+    body: JSON.stringify(body),
+  });
+  return { status: response.status, body: await response.json() };
+}
 
+const time = () => new Date().toLocaleTimeString();
+
+let active = false;
+/** When the baseline was ready: the scenario starts from there. */
+let monitoringSince = null;
+
+for (;;) {
   try {
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Device-Key': options.key },
-      body: JSON.stringify(reading),
-    });
-    const body = await response.json();
-    if (!response.ok) {
-      console.error(`HTTP ${response.status}: ${body.error}`);
-      if (response.status === 404) {
-        console.error('Register a patient in the app first; their device ID is on the Profile tab.');
-      }
-      if (response.status === 401 || response.status === 404 || response.status === 503) {
+    if (!active) {
+      const { status, body } = await post('/heartbeat', { active: false });
+      if (status !== 200) {
+        console.error(`HTTP ${status}: ${body.error}`);
+        if (status === 404) {
+          console.error('Register a patient in the app first; their device ID is on the Profile tab.');
+        }
         process.exit(1);
       }
+      if (body.activate) {
+        active = true;
+        await post('/heartbeat', { active: true, sensorsOk: true });
+        console.log(`${time()}  sensors activated: press "Scan initial readings" in the app`);
+      }
     } else {
-      const { risk, pressureDuration, calibration } = body;
-      const status = risk
-        ? `${risk.riskLevel} ${risk.riskScore}/${risk.maxScore}, held ${pressureDuration} s` +
-          (risk.immediateAlert ? '   ⚠ CRITICAL ALERT' : '')
-        : `calibrating baseline (${calibration.samples} readings)`;
-      console.log(
-        `${new Date().toLocaleTimeString()}  pressure ${reading.pressure} mmHg  ` +
-          `temp ${reading.temperature} °C  humidity ${reading.humidity} %  →  ${status}`
-      );
+      const seconds = monitoringSince === null ? 0 : (Date.now() - monitoringSince) / 1000;
+      const raw = monitoringSince === null ? normal() : scenario(seconds);
+      const reading = {
+        pressure: round(raw.pressure),
+        temperature: round(raw.temperature),
+        humidity: round(raw.humidity),
+      };
+      const { status, body } = await post('/readings', reading);
+
+      if (body.activate === false) {
+        active = false;
+        monitoringSince = null;
+        console.log(`${time()}  deactivated in the app: sensors off`);
+      } else if (status !== 201) {
+        console.error(`HTTP ${status}: ${body.error}`);
+        if (status === 401 || status === 404 || status === 503) process.exit(1);
+      } else {
+        const { risk, pressureDuration, calibration } = body;
+        if (calibration.status === 'complete') {
+          monitoringSince ??= Date.now();
+        } else {
+          monitoringSince = null;
+        }
+        const state = risk
+          ? `${risk.riskLevel} ${risk.riskScore}/${risk.maxScore}, held ${pressureDuration} s` +
+            (risk.immediateAlert ? '   ⚠ CRITICAL ALERT' : '')
+          : calibration.status === 'none'
+            ? 'activated, waiting for "Scan initial readings"'
+            : `scanning initial readings (${calibration.samples})`;
+        console.log(
+          `${time()}  pressure ${reading.pressure} mmHg  temp ${reading.temperature} °C  ` +
+            `humidity ${reading.humidity} %  →  ${state}`
+        );
+      }
     }
   } catch (error) {
     console.error(`Could not reach ${options.url}: ${error.message}`);

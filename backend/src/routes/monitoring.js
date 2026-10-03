@@ -2,16 +2,18 @@ import express from 'express';
 import { z } from 'zod';
 
 import { requirePatient } from '../middleware/auth.js';
-import { validate } from '../middleware/errors.js';
+import { HttpError, validate } from '../middleware/errors.js';
 import { Alert } from '../models/alert.js';
 import { DeviceState } from '../models/device-state.js';
 import { Reading } from '../models/reading.js';
 import {
-  getCalibration,
-  ingestReading,
-  readingSchema,
+  activate,
+  deactivate,
+  getDeviceStatus,
+  NOT_ACTIVE,
   startCalibration,
-} from '../services/ingest.js';
+} from '../services/device-session.js';
+import { ingestReading, readingSchema } from '../services/ingest.js';
 
 export const monitoringRouter = express.Router();
 monitoringRouter.use(requirePatient);
@@ -34,18 +36,33 @@ monitoringRouter.get('/latest', async (req, res) => {
 monitoringRouter.post('/readings', async (req, res) => {
   const reading = validate(readingSchema, req.body);
   const snapshot = await ingestReading(req.patient.deviceId, reading);
+  if (!snapshot) {
+    throw new HttpError(409, NOT_ACTIVE);
+  }
   res.status(201).json(snapshot);
 });
 
-/** Calibration progress and the baseline readings are scored against. */
-monitoringRouter.get('/calibration', async (req, res) => {
-  res.json({ calibration: await getCalibration(req.patient.deviceId) });
+/** Whether the patch is activated and checking in, wear time, and calibration progress. */
+monitoringRouter.get('/device', async (req, res) => {
+  res.json(await getDeviceStatus(req.patient.deviceId));
 });
 
-/** Starts a new 1-minute baseline calibration from the device's next reading. */
+/** Switches the patch's sensors on; it confirms within a few seconds. */
+monitoringRouter.post('/device/activate', async (req, res) => {
+  const { deviceId, patientId } = req.patient;
+  res.json(await activate(deviceId, patientId));
+});
+
+/** Switches the patch's sensors off and ends the wear session. */
+monitoringRouter.post('/device/deactivate', async (req, res) => {
+  const { deviceId, patientId } = req.patient;
+  res.json(await deactivate(deviceId, patientId));
+});
+
+/** Scans the initial readings: the device's next minute of readings becomes the baseline. */
 monitoringRouter.post('/calibration', async (req, res) => {
   const { deviceId, patientId } = req.patient;
-  res.status(201).json({ calibration: await startCalibration(deviceId, patientId) });
+  res.status(201).json(await startCalibration(deviceId, patientId));
 });
 
 const historyQuery = z.object({

@@ -4,8 +4,11 @@
  */
 export const PRESSURE_UNIT: string = 'mmHg';
 
-/** A device that hasn't sent a reading for this long is shown as offline. */
-export const DEVICE_STALE_SECONDS = 10;
+/** A patch that hasn't checked in for this long is shown as offline. It checks in every ~2 s. */
+export const DEVICE_STALE_SECONDS = 15;
+
+/** An activated patch that hasn't confirmed after this long is probably off or not on Wi-Fi. */
+export const ACTIVATION_TIMEOUT_SECONDS = 20;
 
 /** How much pressure history the dashboard chart shows. */
 export const TREND_MINUTES = 15;

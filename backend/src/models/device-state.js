@@ -9,11 +9,31 @@ const sensorReading = {
   humidity: Number,
 };
 
+/** A calibration that starts with the device's next reading. */
+export function newCalibration() {
+  return { startedAt: null, samples: 0, sum: { pressure: 0, temperature: 0, humidity: 0 } };
+}
+
 /** The latest reading from each ESP32, plus what's needed to keep measuring pressure duration. */
 const deviceStateSchema = new mongoose.Schema(
   {
     deviceId: { type: String, required: true, unique: true },
     patientId: { type: String, required: true, index: true },
+    /** Set from the app: whether the patch should have its sensors on and send readings. */
+    active: { type: Boolean, default: false },
+    activatedAt: Date,
+    /** What the ESP32 last reported: its sensors are on, and they gave a valid reading. */
+    deviceActive: Boolean,
+    sensorsOk: Boolean,
+    /** When the ESP32 last checked in, with a reading or a heartbeat. */
+    lastSeenAt: Date,
+    /** When the current patch went on the body (its initial scan); null when not worn. */
+    wearStartedAt: Date,
+    /** The previous wear session, kept after the patch is deactivated. */
+    lastWear: {
+      type: new mongoose.Schema({ startedAt: Date, endedAt: Date }, { _id: false }),
+      default: null,
+    },
     reading: sensorReading,
     receivedAt: Date,
     /** Start of the current unbroken run of readings at or above the elevated pressure. */
@@ -38,7 +58,7 @@ const deviceStateSchema = new mongoose.Schema(
       ),
       default: null,
     },
-    /** A calibration in progress. It starts with the first reading after it was requested. */
+    /** A calibration ("initial scan") in progress. It starts with the first reading after it was requested. */
     calibration: {
       type: new mongoose.Schema(
         { startedAt: Date, samples: Number, sum: sensorReading },
@@ -55,7 +75,7 @@ deviceStateSchema.methods.toCalibration = function toCalibration() {
   const { calibration, baseline } = this;
   const startedAt = calibration?.startedAt ?? null;
   return {
-    status: baseline ? 'complete' : startedAt ? 'running' : 'waiting',
+    status: baseline ? 'complete' : startedAt ? 'running' : calibration ? 'waiting' : 'none',
     durationSeconds: CALIBRATION_SECONDS,
     startedAt: startedAt?.toISOString() ?? null,
     endsAt: startedAt ? new Date(+startedAt + CALIBRATION_SECONDS * 1000).toISOString() : null,
@@ -67,6 +87,24 @@ deviceStateSchema.methods.toCalibration = function toCalibration() {
           humidity: baseline.humidity,
           samples: baseline.samples,
           calibratedAt: baseline.calibratedAt.toISOString(),
+        }
+      : null,
+  };
+};
+
+/** Whether the patch is activated and checking in, and how long it has been worn. */
+deviceStateSchema.methods.toDevice = function toDevice() {
+  return {
+    active: this.active,
+    activatedAt: this.activatedAt?.toISOString() ?? null,
+    deviceActive: Boolean(this.deviceActive),
+    sensorsOk: this.sensorsOk ?? null,
+    lastSeenAt: this.lastSeenAt?.toISOString() ?? null,
+    wearStartedAt: this.wearStartedAt?.toISOString() ?? null,
+    lastWear: this.lastWear?.startedAt
+      ? {
+          startedAt: this.lastWear.startedAt.toISOString(),
+          endedAt: this.lastWear.endedAt.toISOString(),
         }
       : null,
   };
@@ -85,6 +123,7 @@ deviceStateSchema.methods.toSnapshot = function toSnapshot() {
     pressureDuration: this.pressureDuration,
     risk: this.risk ?? null,
     calibration: this.toCalibration(),
+    device: this.toDevice(),
   };
 };
 

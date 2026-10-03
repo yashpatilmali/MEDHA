@@ -269,6 +269,8 @@ describe('password reset', () => {
   });
 });
 
+let priyaToken;
+
 describe('device uploads', () => {
   const reading = { pressure: 20, temperature: 36.2, humidity: 34 };
   const upload = (deviceId, body, deviceKey = 'test-device-key') =>
@@ -288,19 +290,19 @@ describe('device uploads', () => {
     assert.deepEqual(Object.keys(response.body.fields).sort(), ['humidity', 'pressure', 'temperature']);
   });
 
-  test('start calibrating the baseline on the first reading', async () => {
+  test('are refused, telling the patch to switch off, until activated in the app', async () => {
     const response = await upload('SP-ESP32-002', reading);
-    assert.equal(response.status, 201);
-    assert.equal(response.body.deviceId, 'SP-ESP32-002');
-    assert.equal(response.body.risk, null);
-    assert.equal(response.body.calibration.status, 'running');
-    assert.equal(response.body.calibration.samples, 1);
+    assert.equal(response.status, 409);
+    assert.equal(response.body.activate, false);
   });
 });
 
-describe('app uploads', () => {
-  const reading = { pressure: 21, temperature: 36.4, humidity: 35 };
-  let priyaToken;
+describe('activation, initial scan and wear time', () => {
+  const reading = { pressure: 20, temperature: 36.2, humidity: 34 };
+  const heartbeat = (body) =>
+    api('/api/devices/SP-ESP32-002/heartbeat', { method: 'POST', body, deviceKey: 'test-device-key' });
+  const control = (path) => api(`/api/monitoring${path}`, { method: 'POST', token: priyaToken });
+  const status = () => api('/api/monitoring/device', { token: priyaToken });
 
   before(async () => {
     const login = await api('/api/auth/login', {
@@ -309,6 +311,85 @@ describe('app uploads', () => {
     });
     priyaToken = login.body.token;
   });
+
+  test('the patch checks in and is told to stay off', async () => {
+    const response = await heartbeat({ active: false });
+    assert.equal(response.status, 200);
+    assert.deepEqual(response.body, { activate: false, calibration: 'none' });
+
+    const { body } = await status();
+    assert.equal(body.device.active, false);
+    assert.equal(body.device.deviceActive, false);
+    assert.ok(body.device.lastSeenAt);
+  });
+
+  test('scanning needs the sensors activated first', async () => {
+    assert.equal((await control('/calibration')).status, 409);
+  });
+
+  test('activate in the app, then the patch switches on and confirms', async () => {
+    const activated = await control('/device/activate');
+    assert.equal(activated.status, 200);
+    assert.equal(activated.body.device.active, true);
+    assert.equal(activated.body.device.deviceActive, false);
+
+    const told = await heartbeat({ active: false });
+    assert.equal(told.body.activate, true);
+
+    await heartbeat({ active: true, sensorsOk: true });
+    const { body } = await status();
+    assert.equal(body.device.deviceActive, true);
+    assert.equal(body.device.sensorsOk, true);
+    assert.equal(body.calibration.status, 'none');
+  });
+
+  test('readings are shown but not scored until the initial scan', async () => {
+    const response = await api('/api/devices/SP-ESP32-002/readings', {
+      method: 'POST',
+      body: reading,
+      deviceKey: 'test-device-key',
+    });
+    assert.equal(response.status, 201);
+    assert.equal(response.body.activate, true);
+    assert.equal(response.body.risk, null);
+    assert.equal(response.body.calibration.status, 'none');
+  });
+
+  test('scanning starts the 1-minute calibration and the wear time', async () => {
+    const scan = await control('/calibration');
+    assert.equal(scan.status, 201);
+    assert.equal(scan.body.calibration.status, 'waiting');
+    assert.ok(scan.body.device.wearStartedAt);
+
+    const response = await api('/api/devices/SP-ESP32-002/readings', {
+      method: 'POST',
+      body: reading,
+      deviceKey: 'test-device-key',
+    });
+    assert.equal(response.body.calibration.status, 'running');
+    assert.equal(response.body.calibration.samples, 1);
+  });
+
+  test('rescanning keeps the wear time running', async () => {
+    const before = (await status()).body.device.wearStartedAt;
+    const rescan = await control('/calibration');
+    assert.equal(rescan.body.device.wearStartedAt, before);
+  });
+
+  test('deactivating ends the wear session and switches the patch off', async () => {
+    const { body } = await control('/device/deactivate');
+    assert.equal(body.device.active, false);
+    assert.equal(body.device.wearStartedAt, null);
+    assert.ok(body.device.lastWear.startedAt && body.device.lastWear.endedAt);
+    assert.equal(body.calibration.status, 'none');
+
+    const told = await heartbeat({ active: true, sensorsOk: true });
+    assert.equal(told.body.activate, false);
+  });
+});
+
+describe('app uploads', () => {
+  const reading = { pressure: 21, temperature: 36.4, humidity: 35 };
 
   test('need a login', async () => {
     const response = await api('/api/monitoring/readings', { method: 'POST', body: reading });
@@ -325,7 +406,17 @@ describe('app uploads', () => {
     assert.deepEqual(Object.keys(response.body.fields).sort(), ['humidity', 'pressure', 'temperature']);
   });
 
+  test('need the sensors activated', async () => {
+    const response = await api('/api/monitoring/readings', {
+      method: 'POST',
+      body: reading,
+      token: priyaToken,
+    });
+    assert.equal(response.status, 409);
+  });
+
   test("are saved for the patient's own device", async () => {
+    await api('/api/monitoring/device/activate', { method: 'POST', token: priyaToken });
     const response = await api('/api/monitoring/readings', {
       method: 'POST',
       body: reading,
@@ -334,7 +425,6 @@ describe('app uploads', () => {
     assert.equal(response.status, 201);
     assert.equal(response.body.deviceId, 'SP-ESP32-002');
     assert.deepEqual(response.body.reading, reading);
-    assert.equal(response.body.calibration.samples, 2);
 
     const latest = await api('/api/monitoring/latest', { token: priyaToken });
     assert.deepEqual(latest.body.snapshot.reading, reading);
@@ -357,7 +447,12 @@ describe('calibration, levels and alerts', () => {
     return snapshot;
   }
 
-  test('the first minute of readings is averaged into the baseline', async () => {
+  before(async () => {
+    await api('/api/monitoring/device/activate', { method: 'POST', token: rahulToken });
+    await api('/api/monitoring/calibration', { method: 'POST', token: rahulToken });
+  });
+
+  test('the first minute of readings after the scan is averaged into the baseline', async () => {
     const calibrating = await hold(normal, 0, 60);
     assert.equal(calibrating.risk, null);
     assert.equal(calibrating.calibration.status, 'running');
@@ -445,7 +540,7 @@ describe('calibration, levels and alerts', () => {
     assert.equal(calibrating.risk, null);
     assert.equal(calibrating.calibration.startedAt, at(300).toISOString());
 
-    const status = await api('/api/monitoring/calibration', { token: rahulToken });
+    const status = await api('/api/monitoring/device', { token: rahulToken });
     assert.equal(status.body.calibration.status, 'running');
 
     const scored = await ingestReading('SP-ESP32-001', normal(360), at(360));
@@ -503,9 +598,9 @@ describe('live updates', () => {
       );
       assert.equal((await alert).riskScore, 8);
 
-      const calibration = once(socket, 'calibration');
+      const status = once(socket, 'status');
       await api('/api/monitoring/calibration', { method: 'POST', token: login.body.token });
-      assert.equal((await calibration).status, 'waiting');
+      assert.equal((await status).calibration.status, 'waiting');
     } finally {
       socket.close();
     }
